@@ -19,7 +19,7 @@
 #include <vector>
 
 #include <stdint.h>
-#include "../convolve/read_samples.h"
+#include "../waveform-tools/read_samples.h"
 #include "design_fir.h"
 #include "Timer.h"
 
@@ -949,10 +949,9 @@ int main(int argc, char** argv)
     //----------------------------------------------------------------
     // Load inputs
     printf("Getting inputs...\n");
-    std::pair<std::vector<int>,
-              std::vector<std::vector<SAMPLE_TYPE> > > v=read_samples(inputfile, max_channels);
-    // std::vector<int>& channels=v.first;
-    std::vector<std::vector<SAMPLE_TYPE> >& samples_vector=v.second;
+    Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile, max_channels);
+    // std::vector<int>& channels=v.channels;
+    std::vector<std::vector<SAMPLE_TYPE> >& samples_vector=v.samples;
 
     const int nchannels_uniq=samples_vector.size();
     // Round down to the nearest multiple of 16 so we don't have to
