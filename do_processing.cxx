@@ -23,6 +23,10 @@
 #include "design_fir.h"
 #include "Timer.h"
 
+#include "boost/program_options.hpp"
+
+namespace po = boost::program_options;
+
 const unsigned short MAGIC = std::numeric_limits<unsigned short>::max();
 const int threshold=600;
 
@@ -940,7 +944,28 @@ void saveOutputToFile(const SAMPLE_TYPE* samples, int nchannels, int nsamples,
 //======================================================================
 int main(int argc, char** argv)
 {
-    const char* inputfile="waveforms-01397060-sigonly-collection";
+    po::options_description desc("Allowed options");
+    desc.add_options()
+        ("help,h", "produce help message")
+        ("input,i", po::value<std::string>(), "input file name")
+        ;
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);    
+
+    if(vm.count("help") || vm.empty()) {
+        std::cout << desc << "\n";
+        return 1;
+    }
+
+    if(!vm.count("input")){
+        std::cout << "No input file specified" << std::endl;
+        std::cout << desc << std::endl;
+        return 1;
+    }
+
+    std::string inputfile=vm["input"].as<std::string>();
     const int max_channels=-1;
     // How many times to repeat the data in memory so as to make sure
     // it's bigger than the cache
@@ -949,7 +974,7 @@ int main(int argc, char** argv)
     //----------------------------------------------------------------
     // Load inputs
     printf("Getting inputs...\n");
-    Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile, max_channels);
+    Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile.c_str(), max_channels);
     // std::vector<int>& channels=v.channels;
     std::vector<std::vector<SAMPLE_TYPE> >& samples_vector=v.samples;
 

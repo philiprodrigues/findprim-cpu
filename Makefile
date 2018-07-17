@@ -1,7 +1,7 @@
 BINARIES := do_processing do_processing_store do_processing_transpose do_processing_32tap do_processing_coherent_pedsub do_processing_coherent_pedsub_store
 
-CFLAGS := -pthread -lrt -fPIC -mavx -mavx2 -Wall -Wno-format
-LDFLAGS :=
+CFLAGS := -pthread -lrt -fPIC -mavx -mavx2 -Wall -Wno-format -I$(BOOST_INC)
+LDFLAGS := -lboost_program_options -L$(BOOST_LIB)
 
 CFLAGS_DEBUG := -g
 CFLAGS_OPT := -O3 -ffast-math
