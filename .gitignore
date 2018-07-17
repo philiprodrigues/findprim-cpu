@@ -37,3 +37,7 @@ do_processing_coherent_pedsub_store
 do_processing_store
 do_processing_transpose
 waveforms-01397060-sigonly-collection
+hits-doprocessing-intrin
+hits-doprocessing-naive
+intrin-times
+naive-times
