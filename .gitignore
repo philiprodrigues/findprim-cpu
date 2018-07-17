@@ -30,3 +30,10 @@
 *.exe
 *.out
 *.app
+do_processing
+do_processing_32tap
+do_processing_coherent_pedsub
+do_processing_coherent_pedsub_store
+do_processing_store
+do_processing_transpose
+waveforms-01397060-sigonly-collection
