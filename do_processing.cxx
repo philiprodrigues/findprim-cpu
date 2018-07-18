@@ -33,6 +33,9 @@ const int threshold=600;
 const int nnthreads=7;
 const int nthreads[nnthreads]={1, 2, 4, 8, 16, 32, 64};
 
+// const int nnthreads=4;
+// const int nthreads[nnthreads]={1, 2, 4, 8};
+
 const int nchannels_per_apa=2560;
 const int ncollection_per_apa=960;
 const float sampling_rate=2e6; // 2 MHz sampling rate of each channe
@@ -135,6 +138,7 @@ void timefnNThreads(const char* name,
     const float dataSizeGB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024*1024);
 
     std::vector<std::pair<float, float> > times;
+    std::vector<float> minTimes, maxTimes;
     printf("% 20s ", name);
 
     std::ofstream fout(std::string(name)+"-times");
@@ -146,20 +150,42 @@ void timefnNThreads(const char* name,
                                                                           taps, ntaps,
                                                                           pedsub, filtered, nthreads[i]);
         float totTime=0;
+        float minTime=std::numeric_limits<float>::max();
+        float maxTime=0;
         for(auto const& p: nthread_times){
             totTime+=p.first;
             fout << p.first << " ";
+            minTime=std::min(minTime, p.first);
+            maxTime=std::max(maxTime, p.first);
         }
         fout << std::endl;
         const unsigned int nrun=nthread_times.size();
         times.push_back(std::make_pair(1e-3*totTime/nrun, dataSizeGB/(1e-6*totTime/nrun)));
+        minTimes.push_back(1e-3*minTime);
+        maxTimes.push_back(1e-3*maxTime);
     }
     // ---------------------------------------------
+    // Print min times
+    for(int i=0; i<nnthreads; ++i){
+        printf("% 8.1f ", minTimes[i]);
+    }
+    printf(" min ms\n");
+
+    // ---------------------------------------------
     // Print average times
+    printf("% 20s ", "");
     for(int i=0; i<nnthreads; ++i){
         printf("% 8.1f ", times[i].first);
     }
-    printf(" ms\n");
+    printf(" avg ms\n");
+
+    // ---------------------------------------------
+    // Print max times
+    printf("% 20s ", "");
+    for(int i=0; i<nnthreads; ++i){
+        printf("% 8.1f ", maxTimes[i]);
+    }
+    printf(" max ms\n");
 
     // ---------------------------------------------
     // Print "APA/server"
