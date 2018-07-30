@@ -2,6 +2,9 @@
 #define PROCESS_SAMPLES_H
 
 #include "../waveform-tools/read_samples.h"
+#include "design_fir.h"
+
+#include <cstring> // for memset
 
 const int nchannels_per_apa=2560;
 const int ncollection_per_apa=960;
@@ -11,7 +14,7 @@ struct TPCData
 {
     TPCData(const char* inputfile, int nrepeat, bool transpose)
     {
-        Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile.c_str(), -1);
+        Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile, -1);
         // std::vector<int>& channels=v.channels;
         std::vector<std::vector<SAMPLE_TYPE> >& samples_vector=v.samples;
         
@@ -66,19 +69,15 @@ struct TPCData
         // my lowpass filter has to be odd or I get funny behaviour. So
         // make a FIR filter with one less tap than NTAPS, and append a
         // zero to make it the NTAPS long again
-        const int ntaps=NTAPS;
+        ntaps=NTAPS;
         std::vector<double> coeffs_double(firwin(ntaps-1, 0.1));
         coeffs_double.push_back(0);
-        SAMPLE_TYPE taps[ntaps];
 
         // The coefficients of the FIR filter are floating point #s <1, so
         // if we want the filtering to do anything sensible in 'short'
         // mode, we have to multiply them up by something
-#ifdef SAMPLE_TYPE_SHORT
-        const int multiplier=100;
-#else
-        const int multiplier=1;
-#endif
+        multiplier=100;
+
         printf("FIR coeffs: ");
         for(int i=0; i<ntaps; ++i){
             printf("%.3f ", coeffs_double[i]);
@@ -100,7 +99,7 @@ struct TPCData
     {
         memset(pedsub, 0, nsize*sizeof(SAMPLE_TYPE));
         memset(filtered, 0, nsize*sizeof(SAMPLE_TYPE));
-        memset(hits, nsize*sizeof(unsigned short));
+        memset(hits, 0, nsize*sizeof(unsigned short));
     }
 
     float msData() { return nsamples*sampling_rate*1000; }
@@ -109,8 +108,13 @@ struct TPCData
 
     int nchannels;
     int nsamples;
+
     int nchannels_uniq;
     int nsamples_uniq;
+
+    int nsize;
+    int nsize_uniq;
+
     int begin_chan;
     int end_chan;
 

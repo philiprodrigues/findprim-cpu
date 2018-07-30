@@ -10,7 +10,7 @@
 #define NTAPS 8 // Keep this a power of two
 #endif
 
-#define "process_samples.h"
+#include "process_samples.h"
 
 #include <immintrin.h>
 #include <thread>
@@ -186,7 +186,7 @@ void print256(__m256i var)
 //======================================================================
 void do_processing_naive(TPCData* data)
 {
-    unsigned short* output_loc=hits;
+    unsigned short* output_loc=data->hits;
     int nhits=0;
 
     for(int ichan=data->begin_chan; ichan<data->end_chan; ichan++){
@@ -195,7 +195,7 @@ void do_processing_naive(TPCData* data)
 #ifdef TRANSPOSE_MEMORY
         SAMPLE_TYPE median=data->src[ichan];
 #else
-        SAMPLE_TYPE median=data->src[ichan*nsamples];
+        SAMPLE_TYPE median=data->src[ichan*data->nsamples];
 #endif
         SAMPLE_TYPE accum=0;
 
@@ -253,7 +253,7 @@ void do_processing_naive(TPCData* data)
             if(ichan%16==0){
                 // Sorting network works in-place, so we need a copy to work on
                 SAMPLE_TYPE my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=src[(ichan+i)*data->nsamples+isample];
+                for(int i=0; i<16; ++i) my_src[i]=data->src[(ichan+i)*data->nsamples+isample];
                 // Swaps for "best" 16-element sorting network, from:
                 // http://pages.ripco.net/~jgamble/nw.html
                 SWAP(0, 1);
@@ -318,7 +318,7 @@ void do_processing_naive(TPCData* data)
                 SWAP(8, 9);
 
                 // Subtract the median
-                for(int i=0; i<16; ++i) src[(ichan+i)*data->nsamples+isample] -= my_src[7];
+                for(int i=0; i<16; ++i) data->src[(ichan+i)*data->nsamples+isample] -= my_src[7];
             } // end if(ichan%16==0)
 
             SAMPLE_TYPE sample=data->src[index];
@@ -450,7 +450,7 @@ void do_processing(TPCData* data)
                                           ichan +  0);
 
         // Loop over samples in this block of channels
-        for(int isample=0; isample<nsamples; ++isample){
+        for(int isample=0; isample<data->nsamples; ++isample){
 
             // --------------------------------------------------------------
             // Pedestal finding
@@ -519,7 +519,7 @@ void do_processing(TPCData* data)
             }
             if(isample%16==0){
                 __m256i my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(src+(ichan+i)*data->nsamples+isample));
+                for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(data->src+(ichan+i)*data->nsamples+isample));
 
                 // Swaps for "best" 16-element sorting network, from:
                 // http://pages.ripco.net/~jgamble/nw.html
@@ -590,7 +590,7 @@ void do_processing(TPCData* data)
                     // pedsub buffer that's meant for just this
                     // output. Store the output there and retrieve it
                     // below
-                    __m256i* addr=(__m256i*)(src+(ichan+i)*data->nsamples+isample);
+                    __m256i* addr=(__m256i*)(data->src+(ichan+i)*data->nsamples+isample);
                     __m256i orig=_mm256_loadu_si256(addr);
                     _mm256_storeu_si256(addr, _mm256_sub_epi16(orig, my_src[7]));
                 }
@@ -600,6 +600,7 @@ void do_processing(TPCData* data)
             // its memory access pattern less horrible with cache
             // blocking?
             const int nsamples=data->nsamples;
+            const SAMPLE_TYPE* src=data->src;
             __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
                                        src[(ichan + 14)*nsamples+isample],
                                        src[(ichan + 13)*nsamples+isample],
@@ -619,12 +620,13 @@ void do_processing(TPCData* data)
 #else
 
 #ifdef TRANSPOSE_MEMORY
-            __m256i s=_mm256_loadu_si256((__m256i*)(src+isample*data->nchannels+ichan));
+            __m256i s=_mm256_loadu_si256((__m256i*)(data->src+isample*data->nchannels+ichan));
 #else
             // TODO: Make this line less horrible, and maybe also make
             // its memory access pattern less horrible with cache
             // blocking?
             const int nsamples=data->nsamples;
+            const SAMPLE_TYPE* src=data->src;
             __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
                                        src[(ichan + 14)*nsamples+isample],
                                        src[(ichan + 13)*nsamples+isample],
@@ -710,7 +712,7 @@ void do_processing(TPCData* data)
 
 #ifdef STORE_INTERMEDIATE
             // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(pedsub+data->nchannels*isample+ichan), s);
+            _mm256_storeu_si256((__m256i*)(data->pedsub+data->nchannels*isample+ichan), s);
 #endif
 
             // --------------------------------------------------------------
@@ -779,7 +781,7 @@ void do_processing(TPCData* data)
 
 #ifdef STORE_INTERMEDIATE
             // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(filtered+data->nchannels*isample+ichan), filt);
+            _mm256_storeu_si256((__m256i*)(data->filtered+data->nchannels*isample+ichan), filt);
 #endif
 
             // --------------------------------------------------------------
@@ -963,14 +965,14 @@ int main(int argc, char** argv)
     }
 
     std::string inputfile=vm["input"].as<std::string>();
-    const int max_channels=-1;
+
     // How many times to repeat the data in memory so as to make sure
     // it's bigger than the cache
     const int nrepeat=16;
 
     const bool transpose=false;
-    TPCData data(inputfile, nrepeat, transpose);
-    data->setTaps(NTAPS, 100);
+    TPCData data(inputfile.c_str(), nrepeat, transpose);
+    data.setTaps(NTAPS, 100);
     //----------------------------------------------------------------
     printf("Using %d samples, %d collection channels (%d unique) = %.1f APA*ms with type size %ld bytes. Total size %.1f MB\n",
            data.nsamples, data.nchannels, data.nchannels_uniq, data.APAmsData(), sizeof(SAMPLE_TYPE),
