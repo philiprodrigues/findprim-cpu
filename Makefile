@@ -6,13 +6,15 @@ LDFLAGS := -lboost_program_options -L$(BOOST_LIB)
 CFLAGS_DEBUG := -g
 CFLAGS_OPT := -O3 -ffast-math
 
+ASM_FLAGS := -fverbose-asm -masm=intel
+
 ifdef DEBUG
 CFLAGS += $(CFLAGS_DEBUG)
 else
 CFLAGS += $(CFLAGS_OPT)
 endif
 
-all: $(BINARIES)
+all: $(BINARIES) do_processing.S
 .PHONY: all
 
 %.o: %.c
@@ -20,6 +22,9 @@ all: $(BINARIES)
 
 %.o: %.cxx
 	$(CXX) $(INCLUDE) $(CFLAGS) -MMD -MP -o $@ -c $<
+
+%.S: %.cxx
+	$(CXX) $(INCLUDE) $(CFLAGS) $(ASM_FLAGS) -MMD -MP -o $@ -S $<
 
 # All of the binaries have the same format, so use a "static pattern
 # rule". Each binary "foo" depends on "foo.o" and we build it with the
