@@ -69,10 +69,10 @@ struct TPCData
         // my lowpass filter has to be odd or I get funny behaviour. So
         // make a FIR filter with one less tap than NTAPS, and append a
         // zero to make it the NTAPS long again
-        ntaps=NTAPS;
         std::vector<double> coeffs_double(firwin(ntaps-1, 0.1));
         coeffs_double.push_back(0);
 
+        taps = (SAMPLE_TYPE*)malloc((ntaps+1)*sizeof(SAMPLE_TYPE));
         // The coefficients of the FIR filter are floating point #s <1, so
         // if we want the filtering to do anything sensible in 'short'
         // mode, we have to multiply them up by something
@@ -102,7 +102,7 @@ struct TPCData
         memset(hits, 0, nsize*sizeof(unsigned short));
     }
 
-    float msData() { return nsamples*sampling_rate*1000; }
+    float msData() { return nsamples/sampling_rate*1000; }
     float APAmsData() { return msData()*nchannels/ncollection_per_apa; }
     float dataSizeMB() { return float(nchannels*nsamples)*sizeof(SAMPLE_TYPE)/(1024*1024); }
     float dataSizeGB() { return dataSizeMB()/1024; }
