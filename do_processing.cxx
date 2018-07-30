@@ -6,10 +6,6 @@
 #define SAMPLE_TYPE float
 #endif
 
-#ifndef NTAPS
-#define NTAPS 8 // Keep this a power of two
-#endif
-
 #include "process_samples.h"
 
 #include <immintrin.h>
@@ -184,21 +180,16 @@ void timefnNThreads(const char* name,
 }
 
 //======================================================================
+template<bool TRANSPOSE, bool COHERENT_PEDSUB, bool STORE_INTERMEDIATE, int NTAPS>
 void do_processing_naive(TPCData* data, int begin_chan, int end_chan, int hit_offset)
 {
     unsigned short* output_loc=data->hits+hit_offset;
     int nhits=0;
-
-    for(int ichan=begin_chan; ichan<end_chan; ichan++){
-
-        // Variables for pedestal finding
-#ifdef TRANSPOSE_MEMORY
-        SAMPLE_TYPE median=data->src[ichan];
-#else
-        SAMPLE_TYPE median=data->src[ichan*data->nsamples];
-#endif
+    
+    for(int ichan=begin_chan; ichan < end_chan; ++ichan){
+        SAMPLE_TYPE median=TRANSPOSE ? data->src[ichan] : data->src[ichan*data->nsamples];
         SAMPLE_TYPE accum=0;
-
+        
         // Variables for filtering
         SAMPLE_TYPE prev_samp[NTAPS]={0};
 
@@ -207,154 +198,126 @@ void do_processing_naive(TPCData* data, int begin_chan, int end_chan, int hit_of
         unsigned short hit_start=0; // start time of the hit
         unsigned short hit_charge=0;
         unsigned short hit_tover=0; // time over threshold
-
+        
         for(int isample=0; isample<data->nsamples; ++isample){
-#ifdef TRANSPOSE_MEMORY
-            const size_t index=isample*data->nchannels+ichan;
-#else
-            const size_t index=ichan*data->nsamples+isample;
-#endif
+            
+            const size_t index=TRANSPOSE ? isample*data->nchannels+ichan : ichan*data->nsamples+isample;
+            
             // --------------------------------------------------------------
             // Pedestal finding/coherent noise removal
             // --------------------------------------------------------------
-
-#ifdef COHERENT_PEDSUB
-            // Use frugal streaming to estimate the median value of
-            // the next 16 channels at this tick, and subtract it from
-            // all of them. Sadly this just doesn't work: if the
-            // starting value is on a big hit, then the median
-            // estimation never recovers, and our estimate of the
-            // median ends up way too large
-
-            // SAMPLE_TYPE coh_median=src[index];
-            // if(ichan%16==0){
-            //     for(int iblock=0; iblock<16; ++iblock){
-            //         int blockindex=(ichan+iblock)*nsamples+isample;
-            //         if(src[blockindex]>coh_median) ++coh_median;
-            //         if(src[blockindex]<coh_median) --coh_median;
-            //     }
-            //     for(int iblock=0; iblock<16; ++iblock){
-            //         int blockindex=(ichan+iblock)*nsamples+isample;
-            //         src[blockindex]=src[blockindex]-coh_median;
-            //     }
-            // }
-            // SAMPLE_TYPE sample=src[index];
-
-            // Instead, let's use a sorting network to find the exact median
-
-
-
-#define SWAP(ii, jj) { \
-                SAMPLE_TYPE min1=std::min(my_src[ii], my_src[jj]); \
-                SAMPLE_TYPE max1=std::max(my_src[ii], my_src[jj]); \
-                my_src[ii]=min1; \
-                my_src[jj]=max1; \
+            SAMPLE_TYPE sample;
+            
+            if(COHERENT_PEDSUB){
+                // Use a sorting network to find the exact median
+#define SWAP(ii, jj) {                                                  \
+                    SAMPLE_TYPE min1=std::min(my_src[ii], my_src[jj]);  \
+                    SAMPLE_TYPE max1=std::max(my_src[ii], my_src[jj]);  \
+                    my_src[ii]=min1;                                    \
+                    my_src[jj]=max1;                                    \
+                }
+                if(ichan%16==0){
+                    // Sorting network works in-place, so we need a copy to work on
+                    SAMPLE_TYPE my_src[16];
+                    for(int i=0; i<16; ++i) my_src[i]=data->src[(ichan+i)*data->nsamples+isample];
+                    // Swaps for "best" 16-element sorting network, from:
+                    // http://pages.ripco.net/~jgamble/nw.html
+                    SWAP(0, 1);
+                    SWAP(2, 3);
+                    SWAP(4, 5);
+                    SWAP(6, 7);
+                    SWAP(8, 9);
+                    SWAP(10, 11);
+                    SWAP(12, 13);
+                    SWAP(14, 15);
+                    SWAP(0, 2);
+                    SWAP(4, 6);
+                    SWAP(8, 10);
+                    SWAP(12, 14);
+                    SWAP(1, 3);
+                    SWAP(5, 7);
+                    SWAP(9, 11);
+                    SWAP(13, 15);
+                    SWAP(0, 4);
+                    SWAP(8, 12);
+                    SWAP(1, 5);
+                    SWAP(9, 13);
+                    SWAP(2, 6);
+                    SWAP(10, 14);
+                    SWAP(3, 7);
+                    SWAP(11, 15);
+                    SWAP(0, 8);
+                    SWAP(1, 9);
+                    SWAP(2, 10);
+                    SWAP(3, 11);
+                    SWAP(4, 12);
+                    SWAP(5, 13);
+                    SWAP(6, 14);
+                    SWAP(7, 15);
+                    SWAP(5, 10);
+                    SWAP(6, 9);
+                    SWAP(3, 12);
+                    SWAP(13, 14);
+                    SWAP(7, 11);
+                    SWAP(1, 2);
+                    SWAP(4, 8);
+                    SWAP(1, 4);
+                    SWAP(7, 13);
+                    SWAP(2, 8);
+                    SWAP(11, 14);
+                    SWAP(2, 4);
+                    SWAP(5, 6);
+                    SWAP(9, 10);
+                    SWAP(11, 13);
+                    SWAP(3, 8);
+                    SWAP(7, 12);
+                    SWAP(6, 8);
+                    SWAP(10, 12);
+                    SWAP(3, 5);
+                    SWAP(7, 9);
+                    SWAP(3, 4);
+                    SWAP(5, 6);
+                    SWAP(7, 8);
+                    SWAP(9, 10);
+                    SWAP(11, 12);
+                    SWAP(6, 7);
+                    SWAP(8, 9);
+                    
+                    // Subtract the median
+                    for(int i=0; i<16; ++i) data->src[(ichan+i)*data->nsamples+isample] -= my_src[7];
+                } // end if(ichan%16==0)
+                
+                sample=data->src[index];
+            } // end if coherent_pedsub
+            else{
+                if(data->src[index]>median) ++accum;
+                if(data->src[index]<median) --accum;
+                if(accum>10){
+                    ++median;
+                    accum=0;
+                }
+                if(accum<-10){
+                    --median;
+                    accum=0;
+                }
+                
+                sample=data->src[index]-median;
             }
-            if(ichan%16==0){
-                // Sorting network works in-place, so we need a copy to work on
-                SAMPLE_TYPE my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=data->src[(ichan+i)*data->nsamples+isample];
-                // Swaps for "best" 16-element sorting network, from:
-                // http://pages.ripco.net/~jgamble/nw.html
-                SWAP(0, 1);
-                SWAP(2, 3);
-                SWAP(4, 5);
-                SWAP(6, 7);
-                SWAP(8, 9);
-                SWAP(10, 11);
-                SWAP(12, 13);
-                SWAP(14, 15);
-                SWAP(0, 2);
-                SWAP(4, 6);
-                SWAP(8, 10);
-                SWAP(12, 14);
-                SWAP(1, 3);
-                SWAP(5, 7);
-                SWAP(9, 11);
-                SWAP(13, 15);
-                SWAP(0, 4);
-                SWAP(8, 12);
-                SWAP(1, 5);
-                SWAP(9, 13);
-                SWAP(2, 6);
-                SWAP(10, 14);
-                SWAP(3, 7);
-                SWAP(11, 15);
-                SWAP(0, 8);
-                SWAP(1, 9);
-                SWAP(2, 10);
-                SWAP(3, 11);
-                SWAP(4, 12);
-                SWAP(5, 13);
-                SWAP(6, 14);
-                SWAP(7, 15);
-                SWAP(5, 10);
-                SWAP(6, 9);
-                SWAP(3, 12);
-                SWAP(13, 14);
-                SWAP(7, 11);
-                SWAP(1, 2);
-                SWAP(4, 8);
-                SWAP(1, 4);
-                SWAP(7, 13);
-                SWAP(2, 8);
-                SWAP(11, 14);
-                SWAP(2, 4);
-                SWAP(5, 6);
-                SWAP(9, 10);
-                SWAP(11, 13);
-                SWAP(3, 8);
-                SWAP(7, 12);
-                SWAP(6, 8);
-                SWAP(10, 12);
-                SWAP(3, 5);
-                SWAP(7, 9);
-                SWAP(3, 4);
-                SWAP(5, 6);
-                SWAP(7, 8);
-                SWAP(9, 10);
-                SWAP(11, 12);
-                SWAP(6, 7);
-                SWAP(8, 9);
-
-                // Subtract the median
-                for(int i=0; i<16; ++i) data->src[(ichan+i)*data->nsamples+isample] -= my_src[7];
-            } // end if(ichan%16==0)
-
-            SAMPLE_TYPE sample=data->src[index];
-
-#else
-            if(data->src[index]>median) ++accum;
-            if(data->src[index]<median) --accum;
-            if(accum>10){
-                ++median;
-                accum=0;
-            }
-            if(accum<-10){
-                --median;
-                accum=0;
-            }
-
-            SAMPLE_TYPE sample=data->src[index]-median;
-#endif
-
-#ifdef STORE_INTERMEDIATE
-            data->pedsub[index]=sample;
-#endif
+            
+            if(STORE_INTERMEDIATE) data->pedsub[index]=sample;
+            
             // --------------------------------------------------------------
             // Filtering
             // --------------------------------------------------------------
-
+            
             SAMPLE_TYPE filt=0;
             for(int j=0; j<NTAPS; ++j){
                 filt+=data->taps[j]*prev_samp[(j+isample)%NTAPS];
             }
             prev_samp[isample%NTAPS]=sample;
-
-#ifdef STORE_INTERMEDIATE
-            data->filtered[index]=filt;
-#endif
-
+            
+            if(STORE_INTERMEDIATE) data->filtered[index]=filt;
+            
             // --------------------------------------------------------------
             // Hit finding
             // --------------------------------------------------------------
@@ -371,11 +334,11 @@ void do_processing_naive(TPCData* data, int begin_chan, int end_chan, int hit_of
                 (*output_loc++) = hit_start;
                 (*output_loc++) = hit_charge;
                 (*output_loc++) = hit_tover;
-
+                
                 hit_start=0;
                 hit_charge=0;
                 hit_tover=0;
-
+                
                 ++nhits;
                 prev_was_over=false;
             } // end if left hit
@@ -387,17 +350,24 @@ void do_processing_naive(TPCData* data, int begin_chan, int end_chan, int hit_of
     for(int i=0; i<4; ++i) (*output_loc++) = MAGIC;
 }
 
+// Make some necessary template specializations
+//                                  TRANSP   COH  STORE TAPS
+template<> void do_processing_naive<false, false, true,    8>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
+template<> void do_processing_naive<true,  false, true,    8>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
+template<> void do_processing_naive<false, false, false,  32>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
+    
 //======================================================================
+template<bool TRANSPOSE, bool COHERENT_PEDSUB, bool STORE_INTERMEDIATE, int NTAPS>
 void do_processing(TPCData* data, int begin_chan, int end_chan, int hit_offset)
 {
     // Make AVX registers containing the values of the filter taps,
     // which we'll need later
     __m256i tap_256[NTAPS];
     for(int i=0; i<NTAPS; ++i) tap_256[i]= _mm256_set1_epi16(data->taps[i]);
-
+        
     // Pointer to keep track of where we'll write the next output hit
     __m256i* output_loc=(__m256i*)(data->hits+hit_offset);
-
+        
     // Loop over channels. We go 16 at a time because that's the
     // number of (short int) data points that fit in a 256-bit
     // register
@@ -451,179 +421,125 @@ void do_processing(TPCData* data, int begin_chan, int end_chan, int hit_offset)
 
         // Loop over samples in this block of channels
         for(int isample=0; isample<data->nsamples; ++isample){
-
+            __m256i s;
             // --------------------------------------------------------------
             // Pedestal finding
             // --------------------------------------------------------------
-#ifdef COHERENT_PEDSUB
-            // Try using frugal streaming to estimate the median
-            // across channels.  Sadly this just doesn't work: if the
-            // starting value is on a big hit, then the median
-            // estimation never recovers, and our estimate of the
-            // median ends up way too large
-
-            // if(isample%16==0){
-            //     __m256i coh_median=_mm256_loadu_si256((__m256i*)(src+ichan*nsamples+isample));
-            //     for(int iblock=0; iblock<16; ++iblock){
-            //         // This is a loop over the 16 channels that are
-            //         // done in one step in the outer loop, with each
-            //         // __m256i register holding the next 16 ticks
-            //         __m256i s=_mm256_loadu_si256((__m256i*)(src+(ichan+iblock)*nsamples+isample));
-            //         // Do the frugal streaming here
-            //         __m256i is_gt=_mm256_cmpgt_epi16(s, coh_median);
-            //         __m256i is_eq=_mm256_cmpeq_epi16(s, coh_median);
-
-            //         __m256i to_add = _mm256_set1_epi16(-1);
-            //         // Really want an epi16 version of this, but the cmpgt and
-            //         // cmplt functions set their epi16 parts to 0xff or 0x0,
-            //         // so treating everything as epi8 works the same
-            //         to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(1), is_gt);
-            //         to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(0), is_eq);
-            //         coh_median = _mm256_add_epi16(coh_median, to_add);
-            //     }
-            //     for(int iblock=0; iblock<16; ++iblock){
-            //         // This is a loop over the 16 channels that are
-            //         // done in one step in the outer loop, with each
-            //         // __m256i register holding the next 16 ticks
-            //         __m256i s2 = _mm256_loadu_si256((__m256i*)(src+(ichan+iblock)*nsamples+isample));
-            //         s2 = _mm256_sub_epi16(s2, coh_median);
-            //         _mm256_storeu_si256((__m256i*)(src+(ichan+iblock)*nsamples+isample), s2);
-            //     }
-            // }
-
-            // // TODO: Make this line less horrible, and maybe also make
-            // // its memory access pattern less horrible with cache
-            // // blocking?
-            // __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
-            //                            src[(ichan + 14)*nsamples+isample],
-            //                            src[(ichan + 13)*nsamples+isample],
-            //                            src[(ichan + 12)*nsamples+isample],
-            //                            src[(ichan + 11)*nsamples+isample],
-            //                            src[(ichan + 10)*nsamples+isample],
-            //                            src[(ichan +  9)*nsamples+isample],
-            //                            src[(ichan +  8)*nsamples+isample],
-            //                            src[(ichan +  7)*nsamples+isample],
-            //                            src[(ichan +  6)*nsamples+isample],
-            //                            src[(ichan +  5)*nsamples+isample],
-            //                            src[(ichan +  4)*nsamples+isample],
-            //                            src[(ichan +  3)*nsamples+isample],
-            //                            src[(ichan +  2)*nsamples+isample],
-            //                            src[(ichan +  1)*nsamples+isample],
-            //                            src[(ichan +  0)*nsamples+isample]);
-
-#define SWAP256(ii, jj) { \
-                __m256i min1=_mm256_min_epi16(my_src[ii], my_src[jj]); \
-                __m256i max1=_mm256_max_epi16(my_src[ii], my_src[jj]); \
-                my_src[ii]=min1; \
-                my_src[jj]=max1; \
-            }
-            if(isample%16==0){
-                __m256i my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(data->src+(ichan+i)*data->nsamples+isample));
-
-                // Swaps for "best" 16-element sorting network, from:
-                // http://pages.ripco.net/~jgamble/nw.html
-                SWAP256(0, 1);
-                SWAP256(2, 3);
-                SWAP256(4, 5);
-                SWAP256(6, 7);
-                SWAP256(8, 9);
-                SWAP256(10, 11);
-                SWAP256(12, 13);
-                SWAP256(14, 15);
-                SWAP256(0, 2);
-                SWAP256(4, 6);
-                SWAP256(8, 10);
-                SWAP256(12, 14);
-                SWAP256(1, 3);
-                SWAP256(5, 7);
-                SWAP256(9, 11);
-                SWAP256(13, 15);
-                SWAP256(0, 4);
-                SWAP256(8, 12);
-                SWAP256(1, 5);
-                SWAP256(9, 13);
-                SWAP256(2, 6);
-                SWAP256(10, 14);
-                SWAP256(3, 7);
-                SWAP256(11, 15);
-                SWAP256(0, 8);
-                SWAP256(1, 9);
-                SWAP256(2, 10);
-                SWAP256(3, 11);
-                SWAP256(4, 12);
-                SWAP256(5, 13);
-                SWAP256(6, 14);
-                SWAP256(7, 15);
-                SWAP256(5, 10);
-                SWAP256(6, 9);
-                SWAP256(3, 12);
-                SWAP256(13, 14);
-                SWAP256(7, 11);
-                SWAP256(1, 2);
-                SWAP256(4, 8);
-                SWAP256(1, 4);
-                SWAP256(7, 13);
-                SWAP256(2, 8);
-                SWAP256(11, 14);
-                SWAP256(2, 4);
-                SWAP256(5, 6);
-                SWAP256(9, 10);
-                SWAP256(11, 13);
-                SWAP256(3, 8);
-                SWAP256(7, 12);
-                SWAP256(6, 8);
-                SWAP256(10, 12);
-                SWAP256(3, 5);
-                SWAP256(7, 9);
-                SWAP256(3, 4);
-                SWAP256(5, 6);
-                SWAP256(7, 8);
-                SWAP256(9, 10);
-                SWAP256(11, 12);
-                SWAP256(6, 7);
-                SWAP256(8, 9);
-
-                // Subtract the median
-                for(int i=0; i<16; ++i){
-                    __m256i* addr=(__m256i*)(data->pedsub+(ichan+i)*data->nsamples+isample);
-                    __m256i orig=_mm256_loadu_si256(addr);
-                    _mm256_storeu_si256(addr, _mm256_sub_epi16(orig, my_src[7]));
+            if(COHERENT_PEDSUB){
+#define SWAP256(ii, jj) {                                               \
+                    __m256i min1=_mm256_min_epi16(my_src[ii], my_src[jj]); \
+                    __m256i max1=_mm256_max_epi16(my_src[ii], my_src[jj]); \
+                    my_src[ii]=min1;                                    \
+                    my_src[jj]=max1;                                    \
                 }
-            } // end if(isample%16==0)
+                if(isample%16==0){
+                    __m256i my_src[16];
+                    for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(data->src+(ichan+i)*data->nsamples+isample));
 
-            // TODO: Make this line less horrible, and maybe also make
-            // its memory access pattern less horrible with cache
-            // blocking?
-            const int nsamples=data->nsamples;
-            const SAMPLE_TYPE* pedsub=data->pedsub;
-            __m256i s=_mm256_set_epi16(pedsub[(ichan + 15)*nsamples+isample],
-                                       pedsub[(ichan + 14)*nsamples+isample],
-                                       pedsub[(ichan + 13)*nsamples+isample],
-                                       pedsub[(ichan + 12)*nsamples+isample],
-                                       pedsub[(ichan + 11)*nsamples+isample],
-                                       pedsub[(ichan + 10)*nsamples+isample],
-                                       pedsub[(ichan +  9)*nsamples+isample],
-                                       pedsub[(ichan +  8)*nsamples+isample],
-                                       pedsub[(ichan +  7)*nsamples+isample],
-                                       pedsub[(ichan +  6)*nsamples+isample],
-                                       pedsub[(ichan +  5)*nsamples+isample],
-                                       pedsub[(ichan +  4)*nsamples+isample],
-                                       pedsub[(ichan +  3)*nsamples+isample],
-                                       pedsub[(ichan +  2)*nsamples+isample],
-                                       pedsub[(ichan +  1)*nsamples+isample],
-                                       pedsub[(ichan +  0)*nsamples+isample]);
-#else
+                    // Swaps for "best" 16-element sorting network, from:
+                    // http://pages.ripco.net/~jgamble/nw.html
+                    SWAP256(0, 1);
+                    SWAP256(2, 3);
+                    SWAP256(4, 5);
+                    SWAP256(6, 7);
+                    SWAP256(8, 9);
+                    SWAP256(10, 11);
+                    SWAP256(12, 13);
+                    SWAP256(14, 15);
+                    SWAP256(0, 2);
+                    SWAP256(4, 6);
+                    SWAP256(8, 10);
+                    SWAP256(12, 14);
+                    SWAP256(1, 3);
+                    SWAP256(5, 7);
+                    SWAP256(9, 11);
+                    SWAP256(13, 15);
+                    SWAP256(0, 4);
+                    SWAP256(8, 12);
+                    SWAP256(1, 5);
+                    SWAP256(9, 13);
+                    SWAP256(2, 6);
+                    SWAP256(10, 14);
+                    SWAP256(3, 7);
+                    SWAP256(11, 15);
+                    SWAP256(0, 8);
+                    SWAP256(1, 9);
+                    SWAP256(2, 10);
+                    SWAP256(3, 11);
+                    SWAP256(4, 12);
+                    SWAP256(5, 13);
+                    SWAP256(6, 14);
+                    SWAP256(7, 15);
+                    SWAP256(5, 10);
+                    SWAP256(6, 9);
+                    SWAP256(3, 12);
+                    SWAP256(13, 14);
+                    SWAP256(7, 11);
+                    SWAP256(1, 2);
+                    SWAP256(4, 8);
+                    SWAP256(1, 4);
+                    SWAP256(7, 13);
+                    SWAP256(2, 8);
+                    SWAP256(11, 14);
+                    SWAP256(2, 4);
+                    SWAP256(5, 6);
+                    SWAP256(9, 10);
+                    SWAP256(11, 13);
+                    SWAP256(3, 8);
+                    SWAP256(7, 12);
+                    SWAP256(6, 8);
+                    SWAP256(10, 12);
+                    SWAP256(3, 5);
+                    SWAP256(7, 9);
+                    SWAP256(3, 4);
+                    SWAP256(5, 6);
+                    SWAP256(7, 8);
+                    SWAP256(9, 10);
+                    SWAP256(11, 12);
+                    SWAP256(6, 7);
+                    SWAP256(8, 9);
 
-#ifdef TRANSPOSE_MEMORY
-            __m256i s=_mm256_loadu_si256((__m256i*)(data->src+isample*data->nchannels+ichan));
-#else
-            // TODO: Make this line less horrible, and maybe also make
-            // its memory access pattern less horrible with cache
-            // blocking?
-            const int nsamples=data->nsamples;
-            const SAMPLE_TYPE* src=data->src;
-            __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
+                    // Subtract the median
+                    for(int i=0; i<16; ++i){
+                        __m256i* addr=(__m256i*)(data->pedsub+(ichan+i)*data->nsamples+isample);
+                        __m256i orig=_mm256_loadu_si256(addr);
+                        _mm256_storeu_si256(addr, _mm256_sub_epi16(orig, my_src[7]));
+                    }
+                } // end if(isample%16==0)
+
+                // TODO: Make this line less horrible, and maybe also make
+                // its memory access pattern less horrible with cache
+                // blocking?
+                const int nsamples=data->nsamples;
+                const SAMPLE_TYPE* pedsub=data->pedsub;
+                s=_mm256_set_epi16(pedsub[(ichan + 15)*nsamples+isample],
+                                   pedsub[(ichan + 14)*nsamples+isample],
+                                   pedsub[(ichan + 13)*nsamples+isample],
+                                   pedsub[(ichan + 12)*nsamples+isample],
+                                   pedsub[(ichan + 11)*nsamples+isample],
+                                   pedsub[(ichan + 10)*nsamples+isample],
+                                   pedsub[(ichan +  9)*nsamples+isample],
+                                   pedsub[(ichan +  8)*nsamples+isample],
+                                   pedsub[(ichan +  7)*nsamples+isample],
+                                   pedsub[(ichan +  6)*nsamples+isample],
+                                   pedsub[(ichan +  5)*nsamples+isample],
+                                   pedsub[(ichan +  4)*nsamples+isample],
+                                   pedsub[(ichan +  3)*nsamples+isample],
+                                   pedsub[(ichan +  2)*nsamples+isample],
+                                   pedsub[(ichan +  1)*nsamples+isample],
+                                   pedsub[(ichan +  0)*nsamples+isample]);
+            } // end if(COHERENT_PEDSUB)
+            else{
+                if(TRANSPOSE){
+                    s=_mm256_loadu_si256((__m256i*)(data->src+isample*data->nchannels+ichan));
+                }
+                else{
+                    // TODO: Make this line less horrible, and maybe also make
+                    // its memory access pattern less horrible with cache
+                    // blocking?
+                    const int nsamples=data->nsamples;
+                    const SAMPLE_TYPE* src=data->src;
+                    s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
                                        src[(ichan + 14)*nsamples+isample],
                                        src[(ichan + 13)*nsamples+isample],
                                        src[(ichan + 12)*nsamples+isample],
@@ -639,77 +555,77 @@ void do_processing(TPCData* data, int begin_chan, int end_chan, int hit_offset)
                                        src[(ichan +  2)*nsamples+isample],
                                        src[(ichan +  1)*nsamples+isample],
                                        src[(ichan +  0)*nsamples+isample]);
-#endif
+                }
+                
+                if(isample==0) median=s;
 
-            if(isample==0) median=s;
+                // if the sample is greater than the median, add one to the accumulator
+                // if the sample is less than the median, subtract one from the accumulator.
 
-            // if the sample is greater than the median, add one to the accumulator
-            // if the sample is less than the median, subtract one from the accumulator.
+                // For reasons that I don't understand, there's no cmplt
+                // for "compare less-than", so we have to compare greater,
+                // compare equal, and take everything else to be compared
+                // less-then
+                __m256i is_gt=_mm256_cmpgt_epi16(s, median);
+                __m256i is_eq=_mm256_cmpeq_epi16(s, median);
 
-            // For reasons that I don't understand, there's no cmplt
-            // for "compare less-than", so we have to compare greater,
-            // compare equal, and take everything else to be compared
-            // less-then
-            __m256i is_gt=_mm256_cmpgt_epi16(s, median);
-            __m256i is_eq=_mm256_cmpeq_epi16(s, median);
+                __m256i to_add = _mm256_set1_epi16(-1);
+                // Really want an epi16 version of this, but the cmpgt and
+                // cmplt functions set their epi16 parts to 0xff or 0x0,
+                // so treating everything as epi8 works the same
+                to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(1), is_gt);
+                to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(0), is_eq);
 
-            __m256i to_add = _mm256_set1_epi16(-1);
-            // Really want an epi16 version of this, but the cmpgt and
-            // cmplt functions set their epi16 parts to 0xff or 0x0,
-            // so treating everything as epi8 works the same
-            to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(1), is_gt);
-            to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(0), is_eq);
+                accum = _mm256_add_epi16(accum, to_add);
 
-            accum = _mm256_add_epi16(accum, to_add);
+                // if(isample<20){
+                //     printf("Step 1\n");
+                //     printf("vals:  "); print256(s); printf("\n");
+                //     printf("med:   "); print256(median); printf("\n");
+                //     printf("is_gt: "); print256(is_gt); printf("\n");
+                //     printf("is_eq: "); print256(is_eq); printf("\n");
+                //     printf("to_add:"); print256(to_add); printf("\n");
+                //     printf("acc:   "); print256(accum); printf("\n");
+                //     printf("\n");
+                // }
 
-            // if(isample<20){
-            //     printf("Step 1\n");
-            //     printf("vals:  "); print256(s); printf("\n");
-            //     printf("med:   "); print256(median); printf("\n");
-            //     printf("is_gt: "); print256(is_gt); printf("\n");
-            //     printf("is_eq: "); print256(is_eq); printf("\n");
-            //     printf("to_add:"); print256(to_add); printf("\n");
-            //     printf("acc:   "); print256(accum); printf("\n");
-            //     printf("\n");
-            // }
+                // if the accumulator is >10, add one to the median and
+                // set the accumulator to zero. if the accumulator is
+                // <-10, subtract one from the median and set the
+                // accumulator to zero
+                is_gt=_mm256_cmpgt_epi16(accum, _mm256_set1_epi16(10));
+                __m256i is_lt=_mm256_cmpgt_epi16(_mm256_sign_epi16(accum, _mm256_set1_epi16(-10)), _mm256_set1_epi16(10));
 
-            // if the accumulator is >10, add one to the median and
-            // set the accumulator to zero. if the accumulator is
-            // <-10, subtract one from the median and set the
-            // accumulator to zero
-            is_gt=_mm256_cmpgt_epi16(accum, _mm256_set1_epi16(10));
-            __m256i is_lt=_mm256_cmpgt_epi16(_mm256_sign_epi16(accum, _mm256_set1_epi16(-10)), _mm256_set1_epi16(10));
+                to_add = _mm256_setzero_si256();
+                to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(1), is_gt);
+                to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(-1), is_lt);
 
-            to_add = _mm256_setzero_si256();
-            to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(1), is_gt);
-            to_add = _mm256_blendv_epi8(to_add, _mm256_set1_epi16(-1), is_lt);
+                median = _mm256_add_epi16(median, to_add);
 
-            median = _mm256_add_epi16(median, to_add);
+                // Reset the channels that were >10 or <-10 to zero, leaving the others unchanged
+                accum = _mm256_blendv_epi8(accum, _mm256_setzero_si256(), _mm256_or_si256(is_lt, is_gt));
 
-            // Reset the channels that were >10 or <-10 to zero, leaving the others unchanged
-            accum = _mm256_blendv_epi8(accum, _mm256_setzero_si256(), _mm256_or_si256(is_lt, is_gt));
+                // if(isample<20){
+                //     printf("Step 2\n");
+                //     printf("vals:  "); print256(s); printf("\n");
+                //     printf("med:   "); print256(median); printf("\n");
+                //     printf("is_gt: "); print256(is_gt); printf("\n");
+                //     printf("is_lt: "); print256(is_lt); printf("\n");
+                //     printf("to_add:"); print256(to_add); printf("\n");
+                //     printf("acc:   "); print256(accum); printf("\n");
+                //     printf("med:   "); print256(median); printf("\n");
+                //     printf("----------------------------------------------------\n\n");
+                // }
 
-            // if(isample<20){
-            //     printf("Step 2\n");
-            //     printf("vals:  "); print256(s); printf("\n");
-            //     printf("med:   "); print256(median); printf("\n");
-            //     printf("is_gt: "); print256(is_gt); printf("\n");
-            //     printf("is_lt: "); print256(is_lt); printf("\n");
-            //     printf("to_add:"); print256(to_add); printf("\n");
-            //     printf("acc:   "); print256(accum); printf("\n");
-            //     printf("med:   "); print256(median); printf("\n");
-            //     printf("----------------------------------------------------\n\n");
-            // }
+                // Actually subtract the pedestal
+                s = _mm256_sub_epi16(s, median);
 
-            // Actually subtract the pedestal
-            s = _mm256_sub_epi16(s, median);
+            } // end if(coherent_pedsub) else block
 
-#endif
-
-#ifdef STORE_INTERMEDIATE
-            // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(data->pedsub+data->nchannels*isample+ichan), s);
-#endif
+            if(STORE_INTERMEDIATE){
+                // This stores transposed. Not sure how to fix it without transposing the entire input structure too
+                _mm256_storeu_si256((__m256i*)(data->pedsub+data->nchannels*isample+ichan), s);
+            }
 
             // --------------------------------------------------------------
             // Filtering
@@ -745,41 +661,42 @@ void do_processing(TPCData* data, int begin_chan, int end_chan, int hit_offset)
             ADDTAP0(4);
             ADDTAP1(5);
             ADDTAP2(6);
-#if NTAPS==32
-            ADDTAP3(7);
-            ADDTAP0(8);
-            ADDTAP1(9);
-            ADDTAP2(10);
-            ADDTAP3(11);
-            ADDTAP0(12);
-            ADDTAP1(13);
-            ADDTAP2(14);
-            ADDTAP3(15);
-            ADDTAP0(16);
-            ADDTAP1(17);
-            ADDTAP2(18);
-            ADDTAP3(19);
-            ADDTAP0(20);
-            ADDTAP1(21);
-            ADDTAP2(22);
-            ADDTAP3(23);
-            ADDTAP0(24);
-            ADDTAP1(25);
-            ADDTAP2(26);
-            ADDTAP3(27);
-            ADDTAP0(28);
-            ADDTAP1(29);
-            ADDTAP2(30);
-            ADDTAP3(31);
-#endif
+            if(NTAPS==32){
+                ADDTAP3(7);
+                ADDTAP0(8);
+                ADDTAP1(9);
+                ADDTAP2(10);
+                ADDTAP3(11);
+                ADDTAP0(12);
+                ADDTAP1(13);
+                ADDTAP2(14);
+                ADDTAP3(15);
+                ADDTAP0(16);
+                ADDTAP1(17);
+                ADDTAP2(18);
+                ADDTAP3(19);
+                ADDTAP0(20);
+                ADDTAP1(21);
+                ADDTAP2(22);
+                ADDTAP3(23);
+                ADDTAP0(24);
+                ADDTAP1(25);
+                ADDTAP2(26);
+                ADDTAP3(27);
+                ADDTAP0(28);
+                ADDTAP1(29);
+                ADDTAP2(30);
+                ADDTAP3(31);
+            }
+
             __m256i filt = _mm256_add_epi16(_mm256_add_epi16(filt0, filt1), _mm256_add_epi16(filt2, filt3));
             prev_samp[isample%NTAPS]=s;
-
-#ifdef STORE_INTERMEDIATE
-            // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(data->filtered+data->nchannels*isample+ichan), filt);
-#endif
-
+            
+            if(STORE_INTERMEDIATE){
+                // This stores transposed. Not sure how to fix it without transposing the entire input structure too
+                _mm256_storeu_si256((__m256i*)(data->filtered+data->nchannels*isample+ichan), filt);
+            }
+            
             // --------------------------------------------------------------
             // Hit finding
             // --------------------------------------------------------------
@@ -860,6 +777,12 @@ void do_processing(TPCData* data, int begin_chan, int end_chan, int hit_offset)
     }
     for(int i=0; i<4; ++i) _mm256_storeu_si256(output_loc++, _mm256_set1_epi16(MAGIC));
 }
+
+// Make some necessary template specializations
+//                                  TRANSP   COH  STORE TAPS
+template<> void do_processing<false, false, true,    8>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
+template<> void do_processing<true,  false, true,    8>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
+template<> void do_processing<false, false, false,  32>(TPCData* data, int begin_chan, int end_chan, int hit_offset);
 
 //======================================================================
 void saveNaiveHitsToFile(unsigned short* hits, const char* filename)
@@ -943,6 +866,10 @@ int main(int argc, char** argv)
     desc.add_options()
         ("help,h", "produce help message")
         ("input,i", po::value<std::string>(), "input file name")
+        ("tag,t",   po::value<std::string>(), "output tag")
+        ("ntaps,n", po::value<int>()->default_value(8), "number of filter taps (8 or 32)")
+        ("store,s", "store intermediate values")
+        ("nrepeat,r", po::value<int>()->default_value(16), "number of repeats of the data")
         ;
 
     po::variables_map vm;
@@ -960,6 +887,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    bool store_intermediate=vm.count("store");
+
     std::string inputfile=vm["input"].as<std::string>();
 
     // How many times to repeat the data in memory so as to make sure
@@ -967,8 +896,8 @@ int main(int argc, char** argv)
     const int nrepeat=16;
 
     const bool transpose=false;
-    TPCData data(inputfile.c_str(), nrepeat, transpose);
-    data.setTaps(NTAPS, 100);
+    TPCData data(inputfile.c_str(), nrepeat, transpose, store_intermediate);
+    data.setTaps(vm["ntaps"].as<int>(), 100);
     //----------------------------------------------------------------
     printf("Using %d samples, %d collection channels (%d unique) = %.1f APA*ms with type size %ld bytes. Total size %.1f MB\n",
            data.nsamples, data.nchannels, data.nchannels_uniq, data.APAmsData(), sizeof(SAMPLE_TYPE),
@@ -985,9 +914,9 @@ int main(int argc, char** argv)
     }
     printf("\n");
 
-    timefnNThreads("intrin", do_processing,
+    timefnNThreads("intrin", do_processing<false, false, false, 8>,
                    &data);
-    timefnNThreads("naive", do_processing_naive,
+    timefnNThreads("naive", do_processing_naive<false, false, false, 8>,
                    &data);
 
     // ---------------------------------------------------------
@@ -995,26 +924,29 @@ int main(int argc, char** argv)
     // ---------------------------------------------------------
 
 #if NTAPS==32
-  #define TAG "doprocessing-32tap"
+#define TAG "doprocessing-32tap"
 #else
-  #ifdef COHERENT_PEDSUB
-    #define TAG "doprocessing-cohpedsub"
-  #else
-    #define TAG "doprocessing"
-  #endif
+#ifdef COHERENT_PEDSUB
+#define TAG "doprocessing-cohpedsub"
+#else
+#define TAG "doprocessing"
+#endif
 #endif
 
-    do_processing_naive(&data, 0, data.nchannels, 0);
+    do_processing_naive<false, false, false, 8>(&data, 0, data.nchannels, 0);
+    saveNaiveHitsToFile(data.hits, "hits-" TAG "-naive");
 
-#ifdef STORE_INTERMEDIATE
-    saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-naive", false);
-    saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-naive", false);
-#endif
+    if(store_intermediate){
+        saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-naive", false);
+        saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-naive", false);
+    }
 
-    do_processing(&data, 0, data.nchannels, 0);
+    do_processing<false, false, false, 8>(&data, 0, data.nchannels, 0);
+    saveIntrinHitsToFile(data.hits, "hits-" TAG "-intrin");
 
-#ifdef STORE_INTERMEDIATE
-    saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-intrin", true);
-    saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-intrin", true);
-#endif
+    if(store_intermediate){
+        saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-intrin", true);
+        saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-intrin", true);
+    }
+
 }

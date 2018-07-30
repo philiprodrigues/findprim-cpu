@@ -12,7 +12,8 @@ const float sampling_rate=2e6; // 2 MHz sampling rate of each channe
 
 struct TPCData
 {
-    TPCData(const char* inputfile, int nrepeat, bool transpose)
+    TPCData(const char* inputfile, int nrepeat, bool transpose_, bool store_intermediate_)
+        : transpose(transpose_), store_intermediate(store_intermediate_)
     {
         Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile, -1);
         // std::vector<int>& channels=v.channels;
@@ -57,7 +58,7 @@ struct TPCData
 
     }
 
-    void setTaps(int ntaps, int multiplier)
+    void setTaps(int ntaps_, int multiplier)
     {
         //----------------------------------------------------------------
         // Create the filter taps
@@ -69,6 +70,8 @@ struct TPCData
         // my lowpass filter has to be odd or I get funny behaviour. So
         // make a FIR filter with one less tap than NTAPS, and append a
         // zero to make it the NTAPS long again
+        ntaps=ntaps_;
+
         std::vector<double> coeffs_double(firwin(ntaps-1, 0.1));
         coeffs_double.push_back(0);
 
@@ -106,6 +109,9 @@ struct TPCData
     float APAmsData() { return msData()*nchannels/ncollection_per_apa; }
     float dataSizeMB() { return float(nchannels*nsamples)*sizeof(SAMPLE_TYPE)/(1024*1024); }
     float dataSizeGB() { return dataSizeMB()/1024; }
+
+    bool transpose;
+    bool store_intermediate;
 
     int nchannels;
     int nsamples;
