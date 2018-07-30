@@ -978,26 +978,17 @@ int main(int argc, char** argv)
     // Run for benchmarking
     // ---------------------------------------------------------
 
-    // printf("% 20s     Threads\n", "");
-    // printf("% 20s ", "");
-    // for(int i=0; i<nnthreads; ++i){
-    //     printf("% 8d ", nthreads[i]);
-    // }
-    // printf("\n");
+    printf("% 20s     Threads\n", "");
+    printf("% 20s ", "");
+    for(int i=0; i<nnthreads; ++i){
+        printf("% 8d ", nthreads[i]);
+    }
+    printf("\n");
 
-    // timefnNThreads("intrin", do_processing,
-    //                src,
-    //                nchannels, nsamples,
-    //                first_chan, last_chan,
-    //                taps, ntaps,
-    //                pedsub, filtered);
-
-    // timefnNThreads("naive", do_processing_naive,
-    //                src,
-    //                nchannels, nsamples,
-    //                first_chan, last_chan,
-    //                taps, ntaps,
-    //                pedsub, filtered);
+    timefnNThreads("intrin", do_processing,
+                   &data);
+    timefnNThreads("naive", do_processing_naive,
+                   &data);
 
     // ---------------------------------------------------------
     // Run again to get the output
@@ -1012,23 +1003,18 @@ int main(int argc, char** argv)
     #define TAG "doprocessing"
   #endif
 #endif
-    // // The processing overwrites the input, so give each run its own copy
-    // SAMPLE_TYPE* my_src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-    // memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
 
     do_processing_naive(&data, 0, data.nchannels, 0);
 
-    // saveNaiveHitsToFile(hits, "hits-" TAG "-naive");
 #ifdef STORE_INTERMEDIATE
-    // saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-naive", false);
-    // saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-naive", false);
+    saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-naive", false);
+    saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-naive", false);
 #endif
 
-    // memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
     do_processing(&data, 0, data.nchannels, 0);
-    // saveIntrinHitsToFile(hits, "hits-" TAG "-intrin");
+
 #ifdef STORE_INTERMEDIATE
-    // saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-intrin", true);
-    // saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-intrin", true);
+    saveOutputToFile(data.pedsub, data.nchannels_uniq, data.nsamples, "pedsub-" TAG "-intrin", true);
+    saveOutputToFile(data.filtered, data.nchannels_uniq, data.nsamples, "filtered-" TAG "-intrin", true);
 #endif
 }
