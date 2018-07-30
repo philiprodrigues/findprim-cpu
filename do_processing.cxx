@@ -10,6 +10,8 @@
 #define NTAPS 8 // Keep this a power of two
 #endif
 
+#define "process_samples.h"
+
 #include <immintrin.h>
 #include <thread>
 #include <cstdio>
@@ -33,13 +35,6 @@ const int threshold=600;
 const int nnthreads=7;
 const int nthreads[nnthreads]={1, 2, 4, 8, 16, 32, 64};
 
-// const int nnthreads=4;
-// const int nthreads[nnthreads]={1, 2, 4, 8};
-
-const int nchannels_per_apa=2560;
-const int ncollection_per_apa=960;
-const float sampling_rate=2e6; // 2 MHz sampling rate of each channe
-
 // Just print the first 8 values
 void print256(__m256i var)
 {
@@ -53,178 +48,154 @@ void print256(__m256i var)
            val[6], val[7]);
 }
 
-typedef void (*processing_fn)(SAMPLE_TYPE* __restrict__ src,
-                              unsigned short*  __restrict__  hits,
-                              int nchannels, int nsamples,
-                              int begin_chan, int end_chan,
-                              SAMPLE_TYPE * __restrict__ taps, int ntaps,
-                              SAMPLE_TYPE * __restrict__ pedsub,
-                              SAMPLE_TYPE * __restrict__ filtered);
+//======================================================================
+// std::vector<std::pair<float, float>> timefnThreads(processing_fn fn,
+//                                                    TPCData* data,
+//                                                    int NTH)
+
+// {
+//     std::vector<std::pair<float, float>> ret;
+
+//     int nsize=data->nchannels * data->nsamples;
+
+//     Timer t;
+//     const float dataSizeGB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024*1024);
+//     const int nrun=10;
+//     long long totTime=0;
+//     // Each thread has its own place to write output hits
+//     unsigned short *hits[NTH];
+//     for(int i=0; i<NTH; ++i) hits[i]=new unsigned short[nsize/10];
+
+//     // We process channels in "blocks" of 16 (because that's the
+//     // number of 16-bit shorts that fit in a 256-bit register)
+//     const int nblock=nchannels/16;
+//     const int blocks_per_thread=nblock/NTH;
+
+//     for(int j=0; j<nrun; ++j){
+//         // The processing overwrites the input, so give each run its own copy
+//         SAMPLE_TYPE* my_src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
+//         memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
+//         t.reset();
+//         std::vector<std::thread> threads;
+//         for(int ith=0; ith<NTH; ++ith){
+//             int first_chan=ith*blocks_per_thread*16;
+//             int last_chan=std::min(nchannels+1, (ith+1)*blocks_per_thread*16);
+
+//             threads.emplace_back(std::thread{fn,
+//                         my_src, hits[ith],
+//                         nchannels, nsamples,
+//                         first_chan, last_chan,
+//                         taps, ntaps,
+//                         pedsub, filtered});
+//         }
+//         for(int ith=0; ith<NTH; ++ith){
+//             threads[ith].join();
+//         }
+//         long long runTime=t.getTime();
+//         totTime+=runTime;
+//         const float speed=dataSizeGB/(1e-6*runTime);
+//         // printf("% 6.1fms, % 9.0f GB/s ", 1e-3*totTime/nrun, speed);
+//         // printf("\n");
+//         ret.push_back(std::make_pair(runTime, speed));
+//         free(my_src);
+//     }
+//     for(int i=0; i<NTH; ++i) delete[] hits[i];
+
+//     return ret;
+// }
+
+// //======================================================================
+// void timefnNThreads(const char* name,
+//                     processing_fn fn,
+//                     TPCData* data)
+// {
+//     int nsize=nchannels*nsamples;
+//     const float msData=1e3*nsamples/sampling_rate;
+//     const float APAmsData=msData*nchannels/ncollection_per_apa;
+//     const float dataSizeGB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024*1024);
+
+//     std::vector<std::pair<float, float> > times;
+//     std::vector<float> minTimes, maxTimes;
+//     printf("% 20s ", name);
+
+//     std::ofstream fout(std::string(name)+"-times");
+//     for(int i=0; i<nnthreads; ++i){
+//         fout << nthreads[i] << " ";
+//         std::vector<std::pair<float, float> > nthread_times=timefnThreads(fn, src,
+//                                                                           nchannels, nsamples,
+//                                                                           begin_chan, end_chan,
+//                                                                           taps, ntaps,
+//                                                                           pedsub, filtered, nthreads[i]);
+//         float totTime=0;
+//         float minTime=std::numeric_limits<float>::max();
+//         float maxTime=0;
+//         for(auto const& p: nthread_times){
+//             totTime+=p.first;
+//             fout << p.first << " ";
+//             minTime=std::min(minTime, p.first);
+//             maxTime=std::max(maxTime, p.first);
+//         }
+//         fout << std::endl;
+//         const unsigned int nrun=nthread_times.size();
+//         times.push_back(std::make_pair(1e-3*totTime/nrun, dataSizeGB/(1e-6*totTime/nrun)));
+//         minTimes.push_back(1e-3*minTime);
+//         maxTimes.push_back(1e-3*maxTime);
+//     }
+//     // ---------------------------------------------
+//     // Print min times
+//     for(int i=0; i<nnthreads; ++i){
+//         printf("% 8.1f ", minTimes[i]);
+//     }
+//     printf(" min ms\n");
+
+//     // ---------------------------------------------
+//     // Print average times
+//     printf("% 20s ", "");
+//     for(int i=0; i<nnthreads; ++i){
+//         printf("% 8.1f ", times[i].first);
+//     }
+//     printf(" avg ms\n");
+
+//     // ---------------------------------------------
+//     // Print max times
+//     printf("% 20s ", "");
+//     for(int i=0; i<nnthreads; ++i){
+//         printf("% 8.1f ", maxTimes[i]);
+//     }
+//     printf(" max ms\n");
+
+//     // ---------------------------------------------
+//     // Print "APA/server"
+//     printf("% 20s ", "");
+//     for(int i=0; i<nnthreads; ++i){
+//         printf("% 8.1f ", APAmsData/times[i].first);
+//     }
+//     printf(" APA/server\n");
+
+//     // ---------------------------------------------
+//     // Print average speeds
+//     printf("% 20s ", "");
+//     for(int i=0; i<nnthreads; ++i){
+//         printf("% 8.1f ", times[i].second);
+//     }
+//     printf(" GB/s\n");
+
+//     printf("\n");
+// }
 
 //======================================================================
-std::vector<std::pair<float, float>> timefnThreads(processing_fn fn,
-                                                   const SAMPLE_TYPE* __restrict__ src,
-                                                   int nchannels, int nsamples,
-                                                   int begin_chan, int end_chan,
-                                                   SAMPLE_TYPE * __restrict__ taps, int ntaps,
-                                                   SAMPLE_TYPE * __restrict__ pedsub,
-                                                   SAMPLE_TYPE * __restrict__ filtered,
-                                                   int NTH)
-
-{
-    std::vector<std::pair<float, float>> ret;
-
-    int nsize=nchannels*nsamples;
-
-    Timer t;
-    const float dataSizeGB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024*1024);
-    const int nrun=10;
-    long long totTime=0;
-    // Each thread has its own place to write output hits
-    unsigned short *hits[NTH];
-    for(int i=0; i<NTH; ++i) hits[i]=new unsigned short[nsize/10];
-
-    // We process channels in "blocks" of 16 (because that's the
-    // number of 16-bit shorts that fit in a 256-bit register)
-    const int nblock=nchannels/16;
-    const int blocks_per_thread=nblock/NTH;
-
-    for(int j=0; j<nrun; ++j){
-        // The processing overwrites the input, so give each run its own copy
-        SAMPLE_TYPE* my_src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-        memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
-        t.reset();
-        std::vector<std::thread> threads;
-        for(int ith=0; ith<NTH; ++ith){
-            int first_chan=ith*blocks_per_thread*16;
-            int last_chan=std::min(nchannels+1, (ith+1)*blocks_per_thread*16);
-
-            threads.emplace_back(std::thread{fn,
-                        my_src, hits[ith],
-                        nchannels, nsamples,
-                        first_chan, last_chan,
-                        taps, ntaps,
-                        pedsub, filtered});
-        }
-        for(int ith=0; ith<NTH; ++ith){
-            threads[ith].join();
-        }
-        long long runTime=t.getTime();
-        totTime+=runTime;
-        const float speed=dataSizeGB/(1e-6*runTime);
-        // printf("% 6.1fms, % 9.0f GB/s ", 1e-3*totTime/nrun, speed);
-        // printf("\n");
-        ret.push_back(std::make_pair(runTime, speed));
-        free(my_src);
-    }
-    for(int i=0; i<NTH; ++i) delete[] hits[i];
-
-    return ret;
-}
-
-//======================================================================
-void timefnNThreads(const char* name,
-                    processing_fn fn,
-                    const SAMPLE_TYPE* __restrict__ src,
-                    int nchannels, int nsamples,
-                    int begin_chan, int end_chan,
-                    SAMPLE_TYPE * __restrict__ taps, int ntaps,
-                    SAMPLE_TYPE * __restrict__ pedsub,
-                    SAMPLE_TYPE * __restrict__ filtered)
-{
-    int nsize=nchannels*nsamples;
-    const float msData=1e3*nsamples/sampling_rate;
-    const float APAmsData=msData*nchannels/ncollection_per_apa;
-    const float dataSizeGB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024*1024);
-
-    std::vector<std::pair<float, float> > times;
-    std::vector<float> minTimes, maxTimes;
-    printf("% 20s ", name);
-
-    std::ofstream fout(std::string(name)+"-times");
-    for(int i=0; i<nnthreads; ++i){
-        fout << nthreads[i] << " ";
-        std::vector<std::pair<float, float> > nthread_times=timefnThreads(fn, src,
-                                                                          nchannels, nsamples,
-                                                                          begin_chan, end_chan,
-                                                                          taps, ntaps,
-                                                                          pedsub, filtered, nthreads[i]);
-        float totTime=0;
-        float minTime=std::numeric_limits<float>::max();
-        float maxTime=0;
-        for(auto const& p: nthread_times){
-            totTime+=p.first;
-            fout << p.first << " ";
-            minTime=std::min(minTime, p.first);
-            maxTime=std::max(maxTime, p.first);
-        }
-        fout << std::endl;
-        const unsigned int nrun=nthread_times.size();
-        times.push_back(std::make_pair(1e-3*totTime/nrun, dataSizeGB/(1e-6*totTime/nrun)));
-        minTimes.push_back(1e-3*minTime);
-        maxTimes.push_back(1e-3*maxTime);
-    }
-    // ---------------------------------------------
-    // Print min times
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8.1f ", minTimes[i]);
-    }
-    printf(" min ms\n");
-
-    // ---------------------------------------------
-    // Print average times
-    printf("% 20s ", "");
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8.1f ", times[i].first);
-    }
-    printf(" avg ms\n");
-
-    // ---------------------------------------------
-    // Print max times
-    printf("% 20s ", "");
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8.1f ", maxTimes[i]);
-    }
-    printf(" max ms\n");
-
-    // ---------------------------------------------
-    // Print "APA/server"
-    printf("% 20s ", "");
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8.1f ", APAmsData/times[i].first);
-    }
-    printf(" APA/server\n");
-
-    // ---------------------------------------------
-    // Print average speeds
-    printf("% 20s ", "");
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8.1f ", times[i].second);
-    }
-    printf(" GB/s\n");
-
-    printf("\n");
-}
-
-//======================================================================
-void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
-                         unsigned short*  __restrict__  hits,
-                         int nchannels, int nsamples,
-                         int begin_chan, int end_chan,
-                         SAMPLE_TYPE * __restrict__ taps, int ntaps,
-                         SAMPLE_TYPE * __restrict__ pedsub,
-                         SAMPLE_TYPE * __restrict__ filtered)
+void do_processing_naive(TPCData* data)
 {
     unsigned short* output_loc=hits;
     int nhits=0;
 
-    for(int ichan=begin_chan; ichan<end_chan; ichan++){
+    for(int ichan=data->begin_chan; ichan<data->end_chan; ichan++){
 
         // Variables for pedestal finding
 #ifdef TRANSPOSE_MEMORY
-        SAMPLE_TYPE median=src[ichan];
+        SAMPLE_TYPE median=data->src[ichan];
 #else
-        SAMPLE_TYPE median=src[ichan*nsamples];
+        SAMPLE_TYPE median=data->src[ichan*nsamples];
 #endif
         SAMPLE_TYPE accum=0;
 
@@ -237,11 +208,11 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
         unsigned short hit_charge=0;
         unsigned short hit_tover=0; // time over threshold
 
-        for(int isample=0; isample<nsamples; ++isample){
+        for(int isample=0; isample<data->nsamples; ++isample){
 #ifdef TRANSPOSE_MEMORY
-            const size_t index=isample*nchannels+ichan;
+            const size_t index=isample*data->nchannels+ichan;
 #else
-            const size_t index=ichan*nsamples+isample;
+            const size_t index=ichan*data->nsamples+isample;
 #endif
             // --------------------------------------------------------------
             // Pedestal finding/coherent noise removal
@@ -282,7 +253,7 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
             if(ichan%16==0){
                 // Sorting network works in-place, so we need a copy to work on
                 SAMPLE_TYPE my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=src[(ichan+i)*nsamples+isample];
+                for(int i=0; i<16; ++i) my_src[i]=src[(ichan+i)*data->nsamples+isample];
                 // Swaps for "best" 16-element sorting network, from:
                 // http://pages.ripco.net/~jgamble/nw.html
                 SWAP(0, 1);
@@ -347,14 +318,14 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
                 SWAP(8, 9);
 
                 // Subtract the median
-                for(int i=0; i<16; ++i) src[(ichan+i)*nsamples+isample] -= my_src[7];
+                for(int i=0; i<16; ++i) src[(ichan+i)*data->nsamples+isample] -= my_src[7];
             } // end if(ichan%16==0)
 
-            SAMPLE_TYPE sample=src[index];
+            SAMPLE_TYPE sample=data->src[index];
 
 #else
-            if(src[index]>median) ++accum;
-            if(src[index]<median) --accum;
+            if(data->src[index]>median) ++accum;
+            if(data->src[index]<median) --accum;
             if(accum>10){
                 ++median;
                 accum=0;
@@ -364,11 +335,11 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
                 accum=0;
             }
 
-            SAMPLE_TYPE sample=src[index]-median;
+            SAMPLE_TYPE sample=data->src[index]-median;
 #endif
 
 #ifdef STORE_INTERMEDIATE
-            pedsub[index]=sample;
+            data->pedsub[index]=sample;
 #endif
             // --------------------------------------------------------------
             // Filtering
@@ -376,12 +347,12 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
 
             SAMPLE_TYPE filt=0;
             for(int j=0; j<NTAPS; ++j){
-                filt+=taps[j]*prev_samp[(j+isample)%NTAPS];
+                filt+=data->taps[j]*prev_samp[(j+isample)%NTAPS];
             }
             prev_samp[isample%NTAPS]=sample;
 
 #ifdef STORE_INTERMEDIATE
-            filtered[index]=filt;
+            data->filtered[index]=filt;
 #endif
 
             // --------------------------------------------------------------
@@ -417,26 +388,20 @@ void do_processing_naive(SAMPLE_TYPE* __restrict__ src,
 }
 
 //======================================================================
-void do_processing(SAMPLE_TYPE*  __restrict__ src,
-                   unsigned short*  __restrict__  hits,
-                   int nchannels, int nsamples,
-                   int begin_chan, int end_chan,
-                   SAMPLE_TYPE * __restrict__ taps, int ntaps,
-                   SAMPLE_TYPE * __restrict__ pedsub,
-                   SAMPLE_TYPE * __restrict__ filtered)
+void do_processing(TPCData* data)
 {
     // Make AVX registers containing the values of the filter taps,
     // which we'll need later
     __m256i tap_256[NTAPS];
-    for(int i=0; i<NTAPS; ++i) tap_256[i]= _mm256_set1_epi16(taps[i]);
+    for(int i=0; i<NTAPS; ++i) tap_256[i]= _mm256_set1_epi16(data->taps[i]);
 
     // Pointer to keep track of where we'll write the next output hit
-    __m256i* output_loc=(__m256i*)hits;
+    __m256i* output_loc=(__m256i*)data->hits;
 
     // Loop over channels. We go 16 at a time because that's the
     // number of (short int) data points that fit in a 256-bit
     // register
-    for(int ichan=begin_chan; ichan<end_chan-15; ichan+=16){
+    for(int ichan=data->begin_chan; ichan<data->end_chan-15; ichan+=16){
 
         // ------------------------------------
         // Variables for pedestal subtraction
@@ -554,7 +519,7 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
             }
             if(isample%16==0){
                 __m256i my_src[16];
-                for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(src+(ichan+i)*nsamples+isample));
+                for(int i=0; i<16; ++i) my_src[i]=_mm256_loadu_si256((__m256i*)(src+(ichan+i)*data->nsamples+isample));
 
                 // Swaps for "best" 16-element sorting network, from:
                 // http://pages.ripco.net/~jgamble/nw.html
@@ -621,7 +586,11 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
 
                 // Subtract the median
                 for(int i=0; i<16; ++i){
-                    __m256i* addr=(__m256i*)(src+(ichan+i)*nsamples+isample);
+                    // TODO: This overwrites the input, but we have a
+                    // pedsub buffer that's meant for just this
+                    // output. Store the output there and retrieve it
+                    // below
+                    __m256i* addr=(__m256i*)(src+(ichan+i)*data->nsamples+isample);
                     __m256i orig=_mm256_loadu_si256(addr);
                     _mm256_storeu_si256(addr, _mm256_sub_epi16(orig, my_src[7]));
                 }
@@ -630,6 +599,7 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
             // TODO: Make this line less horrible, and maybe also make
             // its memory access pattern less horrible with cache
             // blocking?
+            const int nsamples=data->nsamples;
             __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
                                        src[(ichan + 14)*nsamples+isample],
                                        src[(ichan + 13)*nsamples+isample],
@@ -649,11 +619,12 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
 #else
 
 #ifdef TRANSPOSE_MEMORY
-            __m256i s=_mm256_loadu_si256((__m256i*)(src+isample*nchannels+ichan));
+            __m256i s=_mm256_loadu_si256((__m256i*)(src+isample*data->nchannels+ichan));
 #else
             // TODO: Make this line less horrible, and maybe also make
             // its memory access pattern less horrible with cache
             // blocking?
+            const int nsamples=data->nsamples;
             __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
                                        src[(ichan + 14)*nsamples+isample],
                                        src[(ichan + 13)*nsamples+isample],
@@ -739,7 +710,7 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
 
 #ifdef STORE_INTERMEDIATE
             // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(pedsub+nchannels*isample+ichan), s);
+            _mm256_storeu_si256((__m256i*)(pedsub+data->nchannels*isample+ichan), s);
 #endif
 
             // --------------------------------------------------------------
@@ -808,7 +779,7 @@ void do_processing(SAMPLE_TYPE*  __restrict__ src,
 
 #ifdef STORE_INTERMEDIATE
             // This stores transposed. Not sure how to fix it without transposing the entire input structure too
-            _mm256_storeu_si256((__m256i*)(filtered+nchannels*isample+ichan), filt);
+            _mm256_storeu_si256((__m256i*)(filtered+data->nchannels*isample+ichan), filt);
 #endif
 
             // --------------------------------------------------------------
@@ -997,126 +968,41 @@ int main(int argc, char** argv)
     // it's bigger than the cache
     const int nrepeat=16;
 
+    const bool transpose=false;
+    TPCData data(inputfile, nrepeat, transpose);
+    data->setTaps(NTAPS, 100);
     //----------------------------------------------------------------
-    // Load inputs
-    printf("Getting inputs...\n");
-    Waveforms<SAMPLE_TYPE> v=read_samples_text<SAMPLE_TYPE>(inputfile.c_str(), max_channels);
-    // std::vector<int>& channels=v.channels;
-    std::vector<std::vector<SAMPLE_TYPE> >& samples_vector=v.samples;
-
-    const int nchannels_uniq=samples_vector.size();
-    // Round down to the nearest multiple of 16 so we don't have to
-    // worry about tail effects
-    const int nchannels=((nchannels_uniq*nrepeat)/16)*16;
-    const int nsamples=samples_vector[0].size(); // read_samples checks that all the channels have the same #samples
-    const int nsize_uniq = nsamples*nchannels_uniq;
-    const int nsize    = nsize_uniq*nrepeat;
-
-    // The source data
-    SAMPLE_TYPE* src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-    SAMPLE_TYPE* pedsub   = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-    SAMPLE_TYPE* filtered = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-
-    // The list of output hits
-    unsigned short* hits=(unsigned short*)malloc(nsize*sizeof(unsigned short));
-
-    // std::vector<int> collection_indices;
-    // int ichancoll=0;
-    // for(int ichan=0; ichan<nchannels_uniq; ++ichan){
-    //     int channel=channels[ichan];
-    //     bool isCollection=(channel % nchannels_per_apa) >= 1600;
-    //     if(isCollection){
-    //         ++ichancoll;
-    //         collection_indices.push_back(ichan);
-    //     }
-    // }
-
-    // Round down to the nearest multiple of 16 so we don't have to
-    // worry about tail effects
-    //const int nchannels_collection=(ichancoll/16)*16;
-
-#ifdef TRANSPOSE_MEMORY
-    for(int isample=0; isample<nsamples; ++isample){
-        for(int ichan=0; ichan<nchannels; ++ichan){
-            const int index=isample*nchannels+ichan;
-            src[index]=samples_vector[ichan][isample];
-        }
-    }
-#else
-    for(int irep=0; irep<nrepeat; ++irep){
-        for(int ichan=0; ichan<nchannels_uniq; ++ichan){
-            for(int isample=0; isample<nsamples; ++isample){
-                const int index=irep*nsize_uniq + ichan*nsamples + isample;
-                src[index]=samples_vector[ichan][isample];
-            }
-        }
-    }
-#endif
-
-    //----------------------------------------------------------------
-    // Create the filter taps
-
-    // Some evil going on here: I want NTAPS to be a preprocessor
-    // variable so I can build versions of the code with different
-    // numbers of taps. I also want it to be a power of two for modulo
-    // reasons in do_processing. But (I think) the number of taps for
-    // my lowpass filter has to be odd or I get funny behaviour. So
-    // make a FIR filter with one less tap than NTAPS, and append a
-    // zero to make it the NTAPS long again
-    const int ntaps=NTAPS;
-    std::vector<double> coeffs_double(firwin(ntaps-1, 0.1));
-    coeffs_double.push_back(0);
-    SAMPLE_TYPE taps[ntaps];
-
-    // The coefficients of the FIR filter are floating point #s <1, so
-    // if we want the filtering to do anything sensible in 'short'
-    // mode, we have to multiply them up by something
-    #ifdef SAMPLE_TYPE_SHORT
-    const int multiplier=100;
-    #else
-    const int multiplier=1;
-    #endif
-    printf("FIR coeffs: ");
-    for(int i=0; i<ntaps; ++i){
-        printf("%.3f ", coeffs_double[i]);
-        taps[i]=(SAMPLE_TYPE)multiplier*coeffs_double[i];
-    }
-    printf("\n");
-
-    const float msData=nsamples/sampling_rate*1000;
-    const float APAmsData=msData*nchannels/ncollection_per_apa;
-    const float dataSizeMB=float(nsize)*sizeof(SAMPLE_TYPE)/(1024*1024);
     printf("Using %d samples, %d collection channels (%d unique) = %.1f APA*ms with type size %ld bytes. Total size %.1f MB\n",
-           nsamples, nchannels, nchannels_uniq, APAmsData, sizeof(SAMPLE_TYPE),
-           dataSizeMB);
+           data.nsamples, data.nchannels, data.nchannels_uniq, data.APAmsData(), sizeof(SAMPLE_TYPE),
+           data.dataSizeMB());
 
     const int first_chan=0;
-    const int last_chan=nchannels;
+    const int last_chan=data.nchannels;
 
     // ---------------------------------------------------------
     // Run for benchmarking
     // ---------------------------------------------------------
 
-    printf("% 20s     Threads\n", "");
-    printf("% 20s ", "");
-    for(int i=0; i<nnthreads; ++i){
-        printf("% 8d ", nthreads[i]);
-    }
-    printf("\n");
+    // printf("% 20s     Threads\n", "");
+    // printf("% 20s ", "");
+    // for(int i=0; i<nnthreads; ++i){
+    //     printf("% 8d ", nthreads[i]);
+    // }
+    // printf("\n");
 
-    timefnNThreads("intrin", do_processing,
-                   src,
-                   nchannels, nsamples,
-                   first_chan, last_chan,
-                   taps, ntaps,
-                   pedsub, filtered);
+    // timefnNThreads("intrin", do_processing,
+    //                src,
+    //                nchannels, nsamples,
+    //                first_chan, last_chan,
+    //                taps, ntaps,
+    //                pedsub, filtered);
 
-    timefnNThreads("naive", do_processing_naive,
-                   src,
-                   nchannels, nsamples,
-                   first_chan, last_chan,
-                   taps, ntaps,
-                   pedsub, filtered);
+    // timefnNThreads("naive", do_processing_naive,
+    //                src,
+    //                nchannels, nsamples,
+    //                first_chan, last_chan,
+    //                taps, ntaps,
+    //                pedsub, filtered);
 
     // ---------------------------------------------------------
     // Run again to get the output
@@ -1131,36 +1017,23 @@ int main(int argc, char** argv)
     #define TAG "doprocessing"
   #endif
 #endif
-    // The processing overwrites the input, so give each run its own copy
-    SAMPLE_TYPE* my_src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
-    memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
+    // // The processing overwrites the input, so give each run its own copy
+    // SAMPLE_TYPE* my_src      = (SAMPLE_TYPE*)malloc(nsize*sizeof(SAMPLE_TYPE));
+    // memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
 
-    do_processing_naive(my_src, hits,
-                        nchannels_uniq, nsamples,
-                        first_chan, last_chan,
-                        taps, ntaps,
-                        pedsub, filtered);
-    saveNaiveHitsToFile(hits, "hits-" TAG "-naive");
+    do_processing_naive(&data);
+
+    // saveNaiveHitsToFile(hits, "hits-" TAG "-naive");
 #ifdef STORE_INTERMEDIATE
-    saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-naive", false);
-    saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-naive", false);
+    // saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-naive", false);
+    // saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-naive", false);
 #endif
 
-    memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
-    do_processing(src, hits,
-                  nchannels_uniq, nsamples,
-                  first_chan, last_chan,
-                  taps, ntaps,
-                  pedsub, filtered);
-    saveIntrinHitsToFile(hits, "hits-" TAG "-intrin");
+    // memcpy(my_src, src, nsize*sizeof(SAMPLE_TYPE));
+    do_processing(&data);
+    // saveIntrinHitsToFile(hits, "hits-" TAG "-intrin");
 #ifdef STORE_INTERMEDIATE
-    saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-intrin", true);
-    saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-intrin", true);
+    // saveOutputToFile(pedsub, nchannels_uniq, nsamples, "pedsub-" TAG "-intrin", true);
+    // saveOutputToFile(filtered, nchannels_uniq, nsamples, "filtered-" TAG "-intrin", true);
 #endif
-
-    free(my_src);
-    free(src);
-    free(pedsub);
-    free(filtered);
-    free(hits);
 }
