@@ -41,3 +41,5 @@ hits-doprocessing-intrin
 hits-doprocessing-naive
 intrin-times
 naive-times
+intrin-times-1000run-fnal
+output-1000run-fnal
