@@ -1,12 +1,12 @@
 BINARIES := do_processing
 
-CFLAGS := -std=c++11 -pthread -lrt -fPIC -mavx -mavx2 -Wall -Wno-format -I$(BOOST_INC)
+CFLAGS := -std=c++11 -pthread -lrt -fPIC -march=native -mtune=native -mavx -mavx2 -Wall -Wno-format -I$(BOOST_INC)
 LDFLAGS := -lboost_program_options -L$(BOOST_LIB)
 
 CFLAGS_DEBUG := -g
-CFLAGS_OPT := -O3 -ffast-math
+CFLAGS_OPT := -O3 -ffast-math -g
 
-ASM_FLAGS := -fverbose-asm -masm=intel
+ASM_FLAGS := -fverbose-asm -masm=intel -Wa,-adhln
 
 ifdef DEBUG
 CFLAGS += $(CFLAGS_DEBUG)
