@@ -14,14 +14,11 @@
 
 #include <cstdio>
 #include <cstring> // For memset
-#include <limits>
+
 #include <iomanip>
 #include <vector>
 
 #include <stdint.h>
-#include "../waveform-tools/read_samples.h"
-#include "design_fir.h"
-
 
 #include "boost/program_options.hpp"
 
@@ -41,9 +38,6 @@ void print256(__m256i var)
            val[0], val[1], val[2], val[3], val[4], val[5],
            val[6], val[7]);
 }
-
-
-    
 
 //======================================================================
 void saveNaiveHitsToFile(unsigned short* hits, const char* filename)
