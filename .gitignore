@@ -44,3 +44,4 @@ naive-times
 intrin-times-1000run-fnal
 output-1000run-fnal
 *.S
+run_one_thread

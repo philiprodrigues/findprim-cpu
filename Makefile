@@ -1,4 +1,4 @@
-BINARIES := do_processing
+BINARIES := do_processing run_one_thread
 
 CFLAGS := -std=c++11 -pthread -lrt -fPIC -march=native -mtune=native -mavx -mavx2 -Wall -Wno-format -I$(BOOST_INC)
 LDFLAGS := -lboost_program_options -L$(BOOST_LIB)
