@@ -105,6 +105,7 @@ struct TPCData
     float msData() { return nsamples*sampling_rate*1000; }
     float APAmsData() { return msData()*nchannels/ncollection_per_apa; }
     float dataSizeMB() { return float(nchannels*nsamples)*sizeof(SAMPLE_TYPE)/(1024*1024); }
+    float dataSizeGB() { return dataSizeMB()/1024; }
 
     int nchannels;
     int nsamples;
@@ -127,7 +128,7 @@ struct TPCData
     SAMPLE_TYPE * __restrict__ filtered;
 };
 
-typedef void (*processing_fn)(TPCData*);
+typedef void (*processing_fn)(TPCData*, int, int, int);
 
 
 #endif
