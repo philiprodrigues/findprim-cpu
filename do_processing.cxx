@@ -586,11 +586,7 @@ void do_processing(TPCData* data)
 
                 // Subtract the median
                 for(int i=0; i<16; ++i){
-                    // TODO: This overwrites the input, but we have a
-                    // pedsub buffer that's meant for just this
-                    // output. Store the output there and retrieve it
-                    // below
-                    __m256i* addr=(__m256i*)(data->src+(ichan+i)*data->nsamples+isample);
+                    __m256i* addr=(__m256i*)(data->pedsub+(ichan+i)*data->nsamples+isample);
                     __m256i orig=_mm256_loadu_si256(addr);
                     _mm256_storeu_si256(addr, _mm256_sub_epi16(orig, my_src[7]));
                 }
@@ -600,23 +596,23 @@ void do_processing(TPCData* data)
             // its memory access pattern less horrible with cache
             // blocking?
             const int nsamples=data->nsamples;
-            const SAMPLE_TYPE* src=data->src;
-            __m256i s=_mm256_set_epi16(src[(ichan + 15)*nsamples+isample],
-                                       src[(ichan + 14)*nsamples+isample],
-                                       src[(ichan + 13)*nsamples+isample],
-                                       src[(ichan + 12)*nsamples+isample],
-                                       src[(ichan + 11)*nsamples+isample],
-                                       src[(ichan + 10)*nsamples+isample],
-                                       src[(ichan +  9)*nsamples+isample],
-                                       src[(ichan +  8)*nsamples+isample],
-                                       src[(ichan +  7)*nsamples+isample],
-                                       src[(ichan +  6)*nsamples+isample],
-                                       src[(ichan +  5)*nsamples+isample],
-                                       src[(ichan +  4)*nsamples+isample],
-                                       src[(ichan +  3)*nsamples+isample],
-                                       src[(ichan +  2)*nsamples+isample],
-                                       src[(ichan +  1)*nsamples+isample],
-                                       src[(ichan +  0)*nsamples+isample]);
+            const SAMPLE_TYPE* pedsub=data->pedsub;
+            __m256i s=_mm256_set_epi16(pedsub[(ichan + 15)*nsamples+isample],
+                                       pedsub[(ichan + 14)*nsamples+isample],
+                                       pedsub[(ichan + 13)*nsamples+isample],
+                                       pedsub[(ichan + 12)*nsamples+isample],
+                                       pedsub[(ichan + 11)*nsamples+isample],
+                                       pedsub[(ichan + 10)*nsamples+isample],
+                                       pedsub[(ichan +  9)*nsamples+isample],
+                                       pedsub[(ichan +  8)*nsamples+isample],
+                                       pedsub[(ichan +  7)*nsamples+isample],
+                                       pedsub[(ichan +  6)*nsamples+isample],
+                                       pedsub[(ichan +  5)*nsamples+isample],
+                                       pedsub[(ichan +  4)*nsamples+isample],
+                                       pedsub[(ichan +  3)*nsamples+isample],
+                                       pedsub[(ichan +  2)*nsamples+isample],
+                                       pedsub[(ichan +  1)*nsamples+isample],
+                                       pedsub[(ichan +  0)*nsamples+isample]);
 #else
 
 #ifdef TRANSPOSE_MEMORY
@@ -977,9 +973,6 @@ int main(int argc, char** argv)
     printf("Using %d samples, %d collection channels (%d unique) = %.1f APA*ms with type size %ld bytes. Total size %.1f MB\n",
            data.nsamples, data.nchannels, data.nchannels_uniq, data.APAmsData(), sizeof(SAMPLE_TYPE),
            data.dataSizeMB());
-
-    const int first_chan=0;
-    const int last_chan=data.nchannels;
 
     // ---------------------------------------------------------
     // Run for benchmarking
