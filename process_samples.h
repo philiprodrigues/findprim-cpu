@@ -134,7 +134,7 @@ struct TPCData
     SAMPLE_TYPE * __restrict__ filtered;
 };
 
-typedef void (*processing_fn)(TPCData*, int, int, int);
+
 
 
 #endif
