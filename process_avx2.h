@@ -2,9 +2,9 @@
 #define PROCESS_AVX2_H
 
 #include "ProcessingInfo.h"
-#include "frame_expand.h"
+// #include "frame_expand.h"
 #include "immintrin.h"
-#include "constants.h"
+#include "constants.hh"
 
 /* void 
 frugal_accum_update_avx2(__m256i& __restrict__ median, const __m256i s, __m256i&  __restrict__ accum, const int16_t acclimit,

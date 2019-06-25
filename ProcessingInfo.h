@@ -1,7 +1,6 @@
 #ifndef PROCESSINGINFO_H
 #define PROCESSINGINFO_H
 
-#include "frame_expand.h"
 #include "constants.hh"
 
 // The state variables for each channel in the link, saved from the last time

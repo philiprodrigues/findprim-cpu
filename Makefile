@@ -8,13 +8,15 @@ CFLAGS_OPT := -O3 -ffast-math -g
 
 ASM_FLAGS := -fverbose-asm -masm=intel -Wa,-adhln
 
+LIBRARY := libfindprim.so
+
 ifdef DEBUG
 CFLAGS += $(CFLAGS_DEBUG)
 else
 CFLAGS += $(CFLAGS_OPT)
 endif
 
-all: $(BINARIES) do_processing.S
+all: $(BINARIES) $(LIBRARY) do_processing.S
 .PHONY: all
 
 %.o: %.c
@@ -23,8 +25,14 @@ all: $(BINARIES) do_processing.S
 %.o: %.cxx
 	$(CXX) $(INCLUDE) $(CFLAGS) -MMD -MP -o $@ -c $<
 
+%.o: %.cpp
+	$(CXX) $(INCLUDE) $(CFLAGS) -MMD -MP -o $@ -c $<
+
 %.S: %.cxx
 	$(CXX) $(INCLUDE) $(CFLAGS) $(ASM_FLAGS) -MMD -MP -o $@ -S $<
+
+libfindprim.so: process_avx2.o process_naive.o design_fir.o
+	$(CXX) -shared -o $@ $<
 
 # All of the binaries have the same format, so use a "static pattern
 # rule". Each binary "foo" depends on "foo.o" and we build it with the
@@ -33,7 +41,7 @@ $(BINARIES) : %: %.o
 	$(CXX) $(INCLUDE) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 clean:
-	rm -f $(BINARIES) *.o *.d
+	rm -f $(BINARIES) $(LIBRARY) *.o *.d
 
 .PHONY: clean
 
