@@ -1,6 +1,7 @@
 source /cvmfs/fermilab.opensciencegrid.org/products/larsoft/setups
 setup gcc v6_4_0
 setup boost v1_66_0 -q e15:prof
+setup cmake v3_13_1
 
 swdir_fnal=/dune/app/users/rodriges/sw
 swdir_ox=/home/rodrigues/dune/daq/primsim/external
