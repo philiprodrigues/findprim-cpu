@@ -114,6 +114,8 @@ int main(int, char**)
                            0); // absTimeModNTAPS
 
     bool pass=true;
+    size_t nhits_naive=0;
+    size_t nhits_avx2=0;
     for(size_t imessage=0; imessage<std::min(n_messages, 5000UL); ++imessage){
         // SUPERCHUNK_CHAR_STRUCT* scs=reinterpret_cast<SUPERCHUNK_CHAR_STRUCT*>(fragment+imessage*NETIO_MSG_SIZE);
         // RegisterArray<REGISTERS_PER_FRAME*FRAMES_PER_MSG> expanded=expand_message_adcs(*scs);
@@ -128,6 +130,8 @@ int main(int, char**)
         process_window_avx2(pi_avx2);
         std::set<Hit> avx2_hits=get_avx2_hits(primfind_dest_avx2);
         std::set<Hit> naive_hits=get_naive_hits(primfind_dest_naive);
+        nhits_naive+=naive_hits.size();
+        nhits_avx2+=avx2_hits.size();
         // for(auto const& hit: naive_hits) printf("% 5d % 5d % 5d % 5d\n", hit.chan, hit.hit_start, hit.hit_charge, hit.hit_tover);
         if(avx2_hits!=naive_hits){
             pass=false;
@@ -148,6 +152,7 @@ int main(int, char**)
         }
     }
 
+    printf("%d naive hits, %d avx2 hits.\n", nhits_naive, nhits_avx2);
     if(pass) printf("naive and avx2 outputs matched! :-)\n");
     else     printf("naive and avx2 outputs differed! :-(\n");
 

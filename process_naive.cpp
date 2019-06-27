@@ -28,6 +28,7 @@ process_window_naive(ProcessingInfo& info)
     // value of the input to INT16_MAX/(2**N)
     const size_t NTAPS=8;
     const int16_t adcMax=info.adcMax;
+    const int16_t sigmaMax=(1<<15)/(info.multiplier*5);
 
     uint16_t* output_loc=info.output;
     uint16_t* input16=(uint16_t*)info.input;
@@ -70,15 +71,15 @@ process_window_naive(ProcessingInfo& info)
             // Pedestal finding/coherent noise removal
             // --------------------------------------------------------------
             int16_t sample=input16[index];
-            if(ichan==87) fprintf(stderr, "%d\n", sample);
+            
             if(sample<median) frugal_accum_update(quantile25, sample, accum25, 10);
             if(sample>median) frugal_accum_update(quantile75, sample, accum75, 10);
             frugal_accum_update(median, sample, accum, 10);
 
-            const int16_t sigma=quantile75-quantile25;
+            const int16_t sigma=std::min((int)sigmaMax, quantile75-quantile25);
 
             sample-=median;
-
+            
             // --------------------------------------------------------------
             // Filtering
             // --------------------------------------------------------------
@@ -86,6 +87,9 @@ process_window_naive(ProcessingInfo& info)
             // Don't let the sample exceed adcMax, which is the value
             // at which its filtered version might overflow
             sample=std::min(sample, adcMax);
+
+            
+
             int16_t filt_tmp=0;
             for(size_t j=0; j<NTAPS; ++j){
                 filt_tmp+=info.taps[j]*prev_samp[(j+absTimeModNTAPS)%NTAPS];
@@ -95,10 +99,12 @@ process_window_naive(ProcessingInfo& info)
             absTimeModNTAPS=(absTimeModNTAPS+1)%NTAPS;
             int16_t filt=filt_tmp;
 
+            
             // --------------------------------------------------------------
             // Hit finding
             // --------------------------------------------------------------
             bool is_over=filt > 5*sigma*info.multiplier;
+
             if(is_over){
                 // Simulate saturated add
                 int32_t tmp_charge=hit_charge;

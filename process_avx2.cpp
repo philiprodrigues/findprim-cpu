@@ -1,5 +1,7 @@
 #include "process_avx2.h"
 
+#include <cstdio>
+
 namespace{
 inline void frugal_accum_update_avx2(__m256i&  __restrict__  median, const __m256i s, __m256i&  __restrict__  accum, const int16_t acclimit,
                               const __m256i mask) __attribute__((always_inline));
@@ -62,6 +64,8 @@ process_window_avx2(ProcessingInfo& info)
     //for(size_t i=0; i<std::min(NTAPS, info.tapsv.size()); ++i) taps[i]=info.tapsv[i];
 
     const __m256i adcMax=_mm256_set1_epi16(info.adcMax);
+    
+    const __m256i sigmaMax=_mm256_set1_epi16((1<<15)/(info.multiplier*5));
 
     __m256i tap_256[NTAPS];
     for(size_t i=0; i<NTAPS; ++i){
@@ -126,7 +130,7 @@ process_window_avx2(ProcessingInfo& info)
 
             // The current sample
             __m256i s=_mm256_lddqu_si256(rawp);
-
+            
             // First, find which channels are above/below the median,
             // since we need these as masks in the call to
             // frugal_accum_update_avx2
@@ -150,9 +154,13 @@ process_window_avx2(ProcessingInfo& info)
 #pragma GCC diagnostic pop
             // Actually subtract the pedestal
             s = _mm256_sub_epi16(s, median);
-
             // Find the interquartile range
             __m256i sigma = _mm256_sub_epi16(quantile75, quantile25);
+
+            // Clamp sigma to a range where it won't overflow when
+            // multiplied by info.multiplier*5
+            sigma=_mm256_min_epi16(sigma, sigmaMax);
+
             // __m256i sigma = _mm256_set1_epi16(2000); // 20 ADC
             // --------------------------------------------------------------
             // Filtering
@@ -161,6 +169,7 @@ process_window_avx2(ProcessingInfo& info)
             // Don't let the sample exceed adcMax, which is the value
             // at which its filtered version might overflow
             s=_mm256_min_epi16(s, adcMax);
+
             // NB we're doing integer multiplication of
             // (short)*(short) here, so the result can be larger than
             // will fit in a short. `mullo` gives us back the low half
@@ -197,6 +206,9 @@ process_window_avx2(ProcessingInfo& info)
             ADDTAP2(6);
 
             __m256i filt = _mm256_add_epi16(_mm256_add_epi16(filt0, filt1), _mm256_add_epi16(filt2, filt3));
+
+
+
             prev_samp[absTimeModNTAPS]=s;
             // This is a reference to the value in the ProcessingInfo,
             // so this line has the effect of directly modifying the
@@ -208,6 +220,7 @@ process_window_avx2(ProcessingInfo& info)
             // Mask for channels that are over the threshold in this step
             // const uint16_t threshold=2000;
             __m256i is_over=_mm256_cmpgt_epi16(filt, sigma*info.multiplier*5);
+
             // Mask for channels that left "over threshold" state this step
             __m256i left=_mm256_andnot_si256(is_over, prev_was_over);
 
