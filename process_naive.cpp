@@ -70,7 +70,7 @@ process_window_naive(ProcessingInfo& info)
             // Pedestal finding/coherent noise removal
             // --------------------------------------------------------------
             int16_t sample=input16[index];
-            
+            if(ichan==87) fprintf(stderr, "%d\n", sample);
             if(sample<median) frugal_accum_update(quantile25, sample, accum25, 10);
             if(sample>median) frugal_accum_update(quantile75, sample, accum75, 10);
             frugal_accum_update(median, sample, accum, 10);
@@ -109,9 +109,9 @@ process_window_naive(ProcessingInfo& info)
                 prev_was_over=true;
             }
             if(prev_was_over && !is_over){
-                if(hit_tover==1){
-                    printf("% 5d % 5d % 5d % 5d\n", (uint16_t)ichan, (uint16_t)itime, hit_charge, hit_tover);
-                }
+                // if(hit_tover==1){
+                //     printf("% 5d % 5d % 5d % 5d\n", (uint16_t)ichan, (uint16_t)itime, hit_charge, hit_tover);
+                // }
 
                 // We reached the end of the hit: write it out
                 (*output_loc++) = (uint16_t)ichan;
