@@ -16,3 +16,11 @@ add_executable(check_output check_output.cpp)
 set_property(TARGET check_output PROPERTY CXX_STANDARD 17)
 target_link_libraries(check_output findprim)
 
+add_executable(run_naive run_naive.cpp)
+set_property(TARGET run_naive PROPERTY CXX_STANDARD 17)
+target_link_libraries(run_naive findprim)
+
+add_executable(print_taps print_taps.cpp)
+set_property(TARGET print_taps PROPERTY CXX_STANDARD 17)
+target_link_libraries(print_taps findprim)
+
