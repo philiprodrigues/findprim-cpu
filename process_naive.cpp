@@ -33,7 +33,6 @@ process_window_naive(ProcessingInfo& info)
     uint16_t* output_loc=info.output;
     uint16_t* input16=(uint16_t*)info.input;
     int nhits=0;
-    uint16_t& absTimeModNTAPS=info.absTimeModNTAPS;
 
     for(size_t ichan=0; ichan<REGISTERS_PER_FRAME*SAMPLES_PER_REGISTER; ++ichan){
         const size_t register_index=ichan/SAMPLES_PER_REGISTER;
@@ -59,6 +58,8 @@ process_window_naive(ProcessingInfo& info)
         int16_t& hit_charge=state.hit_charge[ichan];
         int16_t& hit_tover=state.hit_tover[ichan]; // time over threshold
 
+        uint16_t absTimeModNTAPS=info.absTimeModNTAPS;
+
         for(size_t itime=0; itime<info.timeWindowNumFrames; ++itime){
             const size_t msg_index=itime/12;
             const size_t msg_time_offset=itime%12;
@@ -71,15 +72,17 @@ process_window_naive(ProcessingInfo& info)
             // Pedestal finding/coherent noise removal
             // --------------------------------------------------------------
             int16_t sample=input16[index];
-            
+
             if(sample<median) frugal_accum_update(quantile25, sample, accum25, 10);
             if(sample>median) frugal_accum_update(quantile75, sample, accum75, 10);
             frugal_accum_update(median, sample, accum, 10);
 
+
             const int16_t sigma=std::min((int)sigmaMax, quantile75-quantile25);
 
+            // if(ichan==6) fprintf(stderr, "%d\t%d\t%d\t%d\t", sample, median, quantile25, quantile75);
             sample-=median;
-            
+            // if(ichan==6) fprintf(stderr, "%d\t", sample);
             // --------------------------------------------------------------
             // Filtering
             // --------------------------------------------------------------
@@ -88,22 +91,25 @@ process_window_naive(ProcessingInfo& info)
             // at which its filtered version might overflow
             sample=std::min(sample, adcMax);
 
-            
-
+            // if(ichan==6) printf("itime=%d absTimeModNTAPS=%d\n", itime, absTimeModNTAPS);
             int16_t filt_tmp=0;
             for(size_t j=0; j<NTAPS; ++j){
                 filt_tmp+=info.taps[j]*prev_samp[(j+absTimeModNTAPS)%NTAPS];
+                // if(ichan==6) printf("% 4d ", prev_samp[(j+absTimeModNTAPS)%NTAPS]);
             }
+            // if(ichan==6) printf(": % 4d\n", filt_tmp);
             prev_samp[absTimeModNTAPS%NTAPS]=sample;
 
             absTimeModNTAPS=(absTimeModNTAPS+1)%NTAPS;
             int16_t filt=filt_tmp;
 
-            
+
             // --------------------------------------------------------------
             // Hit finding
             // --------------------------------------------------------------
             bool is_over=filt > 5*sigma*info.multiplier;
+
+            // if(ichan==6) fprintf(stderr, "%d\t%d\t%d\n", filt, 5*sigma*info.multiplier, is_over);
 
             if(is_over){
                 // Simulate saturated add
@@ -137,6 +143,8 @@ process_window_naive(ProcessingInfo& info)
     } // end loop over channels
     // printf("Found %d hits\n", nhits);
     info.nhits+=nhits;
+    info.absTimeModNTAPS=(info.absTimeModNTAPS+info.timeWindowNumFrames)%NTAPS;
+    // printf("End of process_naive, setting absTimeModNTAPS to %d\n", info.absTimeModNTAPS);
     // Write a magic "end-of-hits" value into the list of hits
     for(int i=0; i<4; ++i) (*output_loc++) = MAGIC;
 }
